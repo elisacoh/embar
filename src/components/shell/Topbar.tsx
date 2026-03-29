@@ -1,13 +1,16 @@
 "use client";
 
-import { ChevronDown, LogOut } from "lucide-react";
+import { LogOut } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { WorkspaceSelector } from "./WorkspaceSelector";
+import type { WorkspaceData } from "@/lib/types";
 
 interface TopbarProps {
   userEmail: string;
-  workspaceName: string;
+  workspaces: WorkspaceData[];
+  initialActiveWorkspaceId: string;
 }
 
 function getInitials(email: string): string {
@@ -21,7 +24,7 @@ function getInitials(email: string): string {
   return local.slice(0, 2).toUpperCase();
 }
 
-export function Topbar({ userEmail, workspaceName }: TopbarProps) {
+export function Topbar({ userEmail, workspaces, initialActiveWorkspaceId }: TopbarProps) {
   const router = useRouter();
   const initials = getInitials(userEmail);
 
@@ -42,15 +45,14 @@ export function Topbar({ userEmail, workspaceName }: TopbarProps) {
         </div>
       </div>
 
-      {/* Center — workspace selector, absolutely centered in header */}
+      {/* Center — workspace selector, truly centered in the header */}
       <div className="pointer-events-none absolute inset-x-0 flex justify-center">
-        <button className="group pointer-events-auto flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted">
-          <span className="max-w-[200px] truncate">{workspaceName}</span>
-          <ChevronDown
-            size={13}
-            className="text-muted-foreground transition-transform group-hover:translate-y-px"
+        <div className="pointer-events-auto">
+          <WorkspaceSelector
+            initialWorkspaces={workspaces}
+            initialActiveId={initialActiveWorkspaceId}
           />
-        </button>
+        </div>
       </div>
 
       {/* Right — theme toggle + user avatar */}
@@ -65,7 +67,7 @@ export function Topbar({ userEmail, workspaceName }: TopbarProps) {
             {initials}
           </button>
           {/* Hover tooltip */}
-          <div className="pointer-events-none absolute right-3 top-full z-50 mt-1.5 flex flex-col items-end opacity-0 transition-opacity group-hover:opacity-100">
+          <div className="pointer-events-none absolute right-0 top-full z-50 mt-1.5 flex flex-col items-end opacity-0 transition-opacity group-hover:opacity-100">
             <div className="rounded-md border border-border bg-popover px-2.5 py-1 text-xs text-popover-foreground shadow-sm">
               <p className="font-medium">{userEmail}</p>
               <p className="mt-0.5 flex items-center gap-1 text-muted-foreground">

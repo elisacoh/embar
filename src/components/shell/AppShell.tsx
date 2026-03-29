@@ -6,10 +6,12 @@ import { Topbar } from "./Topbar";
 import { Sidebar } from "./Sidebar";
 import { AIBar } from "./AIBar";
 import { useUIStore, type Module } from "@/stores/ui";
+import type { WorkspaceData } from "@/lib/types";
 
 interface AppShellProps {
   userEmail: string;
-  workspaceName: string;
+  workspaces: WorkspaceData[];
+  initialActiveWorkspaceId: string;
 }
 
 const MODULE_META: Record<
@@ -105,7 +107,7 @@ function ModuleContent({ module }: { module: Module }) {
   );
 }
 
-export function AppShell({ userEmail, workspaceName }: AppShellProps) {
+export function AppShell({ userEmail, workspaces, initialActiveWorkspaceId }: AppShellProps) {
   const [hydrated, setHydrated] = useState(false);
   const activeModule = useUIStore((s) => s.activeModule);
 
@@ -116,7 +118,11 @@ export function AppShell({ userEmail, workspaceName }: AppShellProps) {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
-      <Topbar userEmail={userEmail} workspaceName={workspaceName} />
+      <Topbar
+        userEmail={userEmail}
+        workspaces={workspaces}
+        initialActiveWorkspaceId={initialActiveWorkspaceId}
+      />
 
       <div className="flex flex-1 overflow-hidden">
         {hydrated && <Sidebar />}
