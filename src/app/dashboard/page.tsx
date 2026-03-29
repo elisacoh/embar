@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import { LogoutButton } from "@/components/LogoutButton";
+import { AppShell } from "@/components/shell/AppShell";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -11,12 +11,14 @@ export default async function DashboardPage() {
 
   if (!user) redirect("/login");
 
-  // Safety net: if the DB trigger missed for any reason, create the workspace now.
+  // Fetch workspace — create one if missing (safety net if DB trigger failed)
   const { data: workspaces } = await supabase
     .from("workspaces")
     .select("id, name")
     .is("deleted_at", null)
     .limit(1);
+
+  let workspaceName = "My Workspace";
 
   if (!workspaces || workspaces.length === 0) {
     const admin = createSupabaseClient(
@@ -26,7 +28,7 @@ export default async function DashboardPage() {
     const { data: workspace } = await admin
       .from("workspaces")
       .insert({ name: "My Workspace", type: "personal", owner_id: user.id })
-      .select("id")
+      .select("id, name")
       .single();
     if (workspace) {
       await admin.from("workspace_members").insert({
@@ -34,22 +36,11 @@ export default async function DashboardPage() {
         user_id: user.id,
         role: "owner",
       });
+      workspaceName = workspace.name;
     }
+  } else {
+    workspaceName = workspaces[0]?.name ?? "My Workspace";
   }
 
-  return (
-    <div className="min-h-screen bg-background p-8">
-      <div className="mx-auto max-w-2xl space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">Embar</h1>
-          <LogoutButton />
-        </div>
-        <div className="space-y-2 rounded-lg border border-border p-6">
-          <p className="text-sm text-muted-foreground">Signed in as</p>
-          <p className="font-medium">{user.email}</p>
-        </div>
-        <p className="text-sm text-muted-foreground">Sprint 1 — shell coming next.</p>
-      </div>
-    </div>
-  );
+  return <AppShell userEmail={user.email ?? ""} workspaceName={workspaceName} />;
 }
