@@ -1,0 +1,10 @@
+create index idx_items_workspace_state on items(workspace_id, state) where deleted_at is null;
+create index idx_items_entity_state on items(entity_id, state) where deleted_at is null;
+create index idx_items_scheduled_date on items(workspace_id, scheduled_date) where deleted_at is null;
+create index idx_items_embedding on items using ivfflat (embedding extensions.vector_cosine_ops);
+create index idx_emails_workspace_status on emails(workspace_id, status) where deleted_at is null;
+create index idx_emails_sender on emails(workspace_id, sender_email);
+create index idx_emails_embedding on emails using ivfflat (embedding extensions.vector_cosine_ops);
+create index idx_interactions_user_action on interactions(user_id, action_type, occurred_at desc);
+create index idx_contacts_email on contacts using gin(email);
+create index idx_documents_embedding on documents using ivfflat (embedding extensions.vector_cosine_ops);
