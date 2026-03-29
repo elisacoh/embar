@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/shell/AppShell";
+import type { WorkspaceData } from "@/lib/types";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -11,36 +12,46 @@ export default async function DashboardPage() {
 
   if (!user) redirect("/login");
 
-  // Fetch workspace — create one if missing (safety net if DB trigger failed)
-  const { data: workspaces } = await supabase
+  // Fetch all workspaces the user is a member of
+  let { data: workspaces } = await supabase
     .from("workspaces")
-    .select("id, name")
+    .select("id, name, type")
     .is("deleted_at", null)
-    .limit(1);
+    .order("created_at", { ascending: true });
 
-  let workspaceName = "My Workspace";
-
+  // Safety net: create default workspace if none exist
   if (!workspaces || workspaces.length === 0) {
     const admin = createSupabaseClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
-    const { data: workspace } = await admin
+    const { data: created } = await admin
       .from("workspaces")
       .insert({ name: "My Workspace", type: "personal", owner_id: user.id })
-      .select("id, name")
+      .select("id, name, type")
       .single();
-    if (workspace) {
+    if (created) {
       await admin.from("workspace_members").insert({
-        workspace_id: workspace.id,
+        workspace_id: created.id,
         user_id: user.id,
         role: "owner",
       });
-      workspaceName = workspace.name;
+      workspaces = [created];
     }
-  } else {
-    workspaceName = workspaces[0]?.name ?? "My Workspace";
   }
 
-  return <AppShell userEmail={user.email ?? ""} workspaceName={workspaceName} />;
+  const allWorkspaces: WorkspaceData[] = (workspaces ?? []) as WorkspaceData[];
+
+  // Determine active workspace: last used (from user metadata) or first
+  const lastId = user.user_metadata?.last_workspace_id as string | undefined;
+  const initialActiveWorkspaceId =
+    (lastId && allWorkspaces.some((w) => w.id === lastId) ? lastId : allWorkspaces[0]?.id) ?? "";
+
+  return (
+    <AppShell
+      userEmail={user.email ?? ""}
+      workspaces={allWorkspaces}
+      initialActiveWorkspaceId={initialActiveWorkspaceId}
+    />
+  );
 }
