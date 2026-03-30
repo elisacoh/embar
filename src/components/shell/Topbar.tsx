@@ -32,6 +32,7 @@ export function Topbar({ userEmail, workspaces, initialActiveWorkspaceId }: Topb
     const supabase = createClient();
     await supabase.auth.signOut();
     localStorage.removeItem("embar_remember_me");
+    sessionStorage.removeItem("embar_initialized");
     router.push("/login");
     router.refresh();
   }

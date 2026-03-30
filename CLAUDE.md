@@ -36,7 +36,7 @@ Logical microservices from day one. Services communicate via HTTP API only — n
 - `workspace_id` on **every** table — RLS enforces user isolation at DB level
 - `metadata JSONB` on every table — module extensions write here, never touch core schema
 - `ai_summary TEXT` on every object — pre-computed token-efficient string, internal only, never shown to users
-- `deleted_at TIMESTAMP` everywhere — soft deletes only, never hard delete core objects
+- `deleted_at TIMESTAMP` everywhere — soft del<....etes only, never hard delete core objects
 - **AI service proposes. Next.js app executes.** AI service never writes to DB for user-initiated actions
 - Every AI action requires user confirmation before execution
 - `NEXT_PUBLIC_` prefix = safe for browser. Everything else = server only
