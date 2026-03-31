@@ -1152,7 +1152,7 @@ export function TodayView({
     <>
       <div className="flex h-full overflow-hidden">
         {/* ── Task sections ─────────────────────────────────────────────── */}
-        <div className="min-w-0 flex-1 overflow-y-auto">
+        <div className="min-w-0 flex-[7] overflow-y-auto">
           {visibleSections.map((section) => (
             <div
               key={section.state}
@@ -1370,8 +1370,8 @@ export function TodayView({
         {/* ── Schedule panel ─────────────────────────────────────────────── */}
         <div
           className={cn(
-            "flex flex-none flex-col border-l border-border transition-all duration-300",
-            scheduleOpen ? "w-64" : "w-8"
+            "flex flex-col border-l border-border transition-all duration-300",
+            scheduleOpen ? "flex-[3]" : "w-8 flex-none"
           )}
         >
           {scheduleOpen ? (
