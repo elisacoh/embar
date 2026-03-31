@@ -379,6 +379,7 @@ function PlannedCard({
   const isUrgent = item.urgency === "urgent";
   const isOverdue = item.due_date ? new Date(item.due_date + "T23:59:59") < new Date() : false;
   const doneCount = item.subtasks.filter((s) => s.done).length;
+  const hasAccent = isCritical || isUrgent;
 
   return (
     <div
@@ -388,19 +389,19 @@ function PlannedCard({
       onClick={onSelect}
       onContextMenu={onContextMenu}
       className={cn(
-        "group relative cursor-pointer select-none overflow-hidden rounded-xl border bg-card transition-all",
-        "hover:shadow-md",
+        "group relative w-44 cursor-pointer select-none overflow-hidden rounded-xl border bg-card transition-all",
+        "hover:shadow-sm",
         isCritical
           ? "border-destructive/25 bg-destructive/[0.015]"
           : isUrgent
             ? "border-amber-500/25"
             : "border-border",
         isSelected && "ring-1 ring-brand-500",
-        isDragging && "opacity-30 shadow-none"
+        isDragging && "opacity-30"
       )}
     >
       {/* Urgency accent strip */}
-      {(isCritical || isUrgent) && (
+      {hasAccent && (
         <div
           className={cn(
             "absolute inset-y-0 left-0 w-[3px]",
@@ -409,40 +410,56 @@ function PlannedCard({
         />
       )}
 
-      <div className={cn("flex flex-col gap-2 p-3", (isCritical || isUrgent) && "pl-4")}>
-        {/* Top: entity + time + due date */}
+      <div className={cn("flex flex-col gap-2 p-3", hasAccent && "pl-4")}>
+        {/* Top row: entity dot + time | Focus on hover */}
         <div className="flex items-center gap-1.5">
-          {entity && (
-            <span
-              className="h-1.5 w-1.5 flex-none rounded-full"
-              style={{ backgroundColor: entity.color }}
-            />
-          )}
-          {item.scheduled_time && (
-            <span className="text-[10px] tabular-nums text-muted-foreground/70">
-              {formatTime(item.scheduled_time)}
-            </span>
-          )}
-          {item.due_date && (
-            <span
-              className={cn(
-                "ml-auto text-[10px] font-medium tabular-nums",
-                isOverdue ? "text-destructive" : "text-muted-foreground/50"
-              )}
-            >
-              {isOverdue ? "⚠ " : ""}
-              {formatDate(item.due_date)}
-            </span>
-          )}
+          <div className="flex min-w-0 flex-1 items-center gap-1.5">
+            {entity && (
+              <span
+                className="h-1.5 w-1.5 flex-none rounded-full"
+                style={{ backgroundColor: entity.color }}
+              />
+            )}
+            {item.scheduled_time && (
+              <span className="truncate text-[10px] tabular-nums text-muted-foreground/60">
+                {formatTime(item.scheduled_time)}
+              </span>
+            )}
+          </div>
+          {/* Focus button — visible on hover, never overlaps body */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onFocus();
+            }}
+            className="flex flex-none items-center gap-0.5 rounded-md bg-brand-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-brand-600 opacity-0 transition-opacity hover:bg-brand-500/20 group-hover:opacity-100 dark:text-brand-400"
+          >
+            <PlayIcon size={8} />
+            Focus
+          </button>
         </div>
 
         {/* Title */}
-        <p className="line-clamp-2 text-sm font-medium leading-snug text-foreground">
+        <p className="line-clamp-3 text-sm font-medium leading-snug text-foreground">
           {item.title}
         </p>
 
-        {/* Bottom: subtasks + duration */}
-        <div className="flex items-center gap-2">
+        {/* Due date */}
+        {item.due_date && (
+          <p
+            className={cn(
+              "text-[10px] tabular-nums",
+              isOverdue ? "font-semibold text-destructive" : "text-muted-foreground/45"
+            )}
+          >
+            {isOverdue ? "⚠ " : ""}
+            {formatDate(item.due_date)}
+          </p>
+        )}
+
+        {/* Footer: subtasks toggle + duration */}
+        <div className="flex items-center gap-1.5">
           {item.subtasks.length > 0 && (
             <button
               type="button"
@@ -450,7 +467,7 @@ function PlannedCard({
                 e.stopPropagation();
                 setSubtasksOpen((o) => !o);
               }}
-              className="flex items-center gap-0.5 text-[10px] text-muted-foreground/50 transition-colors hover:text-muted-foreground"
+              className="flex items-center gap-0.5 rounded-md px-1 py-0.5 text-[10px] text-muted-foreground/50 transition-colors hover:bg-muted hover:text-muted-foreground"
             >
               <ChevronDown
                 size={9}
@@ -460,7 +477,7 @@ function PlannedCard({
             </button>
           )}
           {item.duration_estimate != null && (
-            <span className="ml-auto rounded-full bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground/70">
+            <span className="ml-auto text-[10px] text-muted-foreground/45">
               {formatDuration(item.duration_estimate)}
             </span>
           )}
@@ -468,19 +485,19 @@ function PlannedCard({
 
         {/* Subtask list */}
         {subtasksOpen && item.subtasks.length > 0 && (
-          <div className="space-y-1 border-t border-border/40 pt-2">
+          <div className="space-y-1.5 border-t border-border/40 pt-2">
             {item.subtasks.map((s) => (
-              <div key={s.id} className="flex items-center gap-1.5">
+              <div key={s.id} className="flex items-start gap-1.5">
                 <div
                   className={cn(
-                    "h-3 w-3 flex-none rounded-full border",
+                    "mt-0.5 h-3 w-3 flex-none rounded-full border",
                     s.done ? "border-green-500 bg-green-500/20" : "border-muted-foreground/30"
                   )}
                 />
                 <span
                   className={cn(
                     "text-[11px] leading-snug",
-                    s.done ? "text-muted-foreground/50 line-through" : "text-foreground/80"
+                    s.done ? "text-muted-foreground/40 line-through" : "text-foreground/75"
                   )}
                 >
                   {s.title}
@@ -489,30 +506,6 @@ function PlannedCard({
             ))}
           </div>
         )}
-      </div>
-
-      {/* Hover quick actions */}
-      <div className="absolute inset-x-0 bottom-0 flex translate-y-full items-center gap-1 bg-gradient-to-t from-card via-card/95 to-transparent px-2 pb-2 pt-4 opacity-0 transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100">
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onFocus();
-          }}
-          className="flex items-center gap-1 rounded-md bg-brand-500/10 px-1.5 py-1 text-[10px] font-semibold text-brand-600 transition-colors hover:bg-brand-500/20 dark:text-brand-400"
-        >
-          <PlayIcon size={9} />
-          Focus
-        </button>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onSelect();
-          }}
-          className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] text-muted-foreground transition-colors hover:bg-muted"
-        >
-          <Pencil size={9} />
-          Edit
-        </button>
       </div>
     </div>
   );
@@ -1352,7 +1345,7 @@ export function TodayView({
                       No tasks planned for today
                     </div>
                   ) : (
-                    <div className="grid grid-cols-2 gap-2 px-4 sm:grid-cols-2 md:grid-cols-1 lg:grid-cols-2">
+                    <div className="flex flex-wrap gap-2 px-4">
                       {section.items.map((item) => {
                         const entity = entities.find((e) => e.id === item.entity_id) ?? null;
                         return (
