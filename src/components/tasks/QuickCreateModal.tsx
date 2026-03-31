@@ -436,7 +436,7 @@ export function QuickCreateModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
 
-      <div className="relative w-full max-w-xl overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
+      <div className="relative w-full max-w-2xl rounded-2xl border border-border bg-background shadow-2xl">
         {/* ── Header ──────────────────────────────────────────────────────── */}
         <div className="flex items-center justify-between border-b border-border/60 px-6 py-4">
           <span className="text-sm font-semibold text-foreground">New Task</span>
@@ -481,10 +481,9 @@ export function QuickCreateModal({
             <button
               type="button"
               onClick={() => setShowDescription(true)}
-              className="mb-4 flex items-center gap-2 text-sm text-muted-foreground/50 transition-colors hover:text-muted-foreground"
+              className="mb-4 text-sm text-muted-foreground/40 transition-colors hover:text-muted-foreground"
             >
-              <span className="text-base leading-none">📝</span>
-              <span>Add description</span>
+              Add description
             </button>
           )}
 
@@ -530,10 +529,9 @@ export function QuickCreateModal({
             <button
               type="button"
               onClick={() => setShowSubtaskInput(true)}
-              className="mb-4 flex items-center gap-2 text-sm text-muted-foreground/50 transition-colors hover:text-muted-foreground"
+              className="mb-4 text-sm text-muted-foreground/40 transition-colors hover:text-muted-foreground"
             >
-              <span className="text-base leading-none">＋</span>
-              <span>Add subtask</span>
+              + Add subtask
             </button>
           )}
         </div>
