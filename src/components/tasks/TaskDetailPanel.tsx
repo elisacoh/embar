@@ -14,6 +14,7 @@ import {
   GripVertical,
   Trash2,
   ChevronDown,
+  Check,
 } from "lucide-react";
 import { getItem, updateItem } from "@/app/actions/items";
 import { cn } from "@/lib/utils";
@@ -167,6 +168,7 @@ interface TaskDetailPanelProps {
 export function TaskDetailPanel({ itemId, initialItem, onClose, onUpdated }: TaskDetailPanelProps) {
   const [draft, setDraft] = useState<ItemData | null>(initialItem ?? null);
   const [loading, setLoading] = useState(!initialItem);
+  const [saved, setSaved] = useState(false);
 
   // Subtask local state
   const [newSubtask, setNewSubtask] = useState("");
@@ -233,6 +235,21 @@ export function TaskDetailPanel({ itemId, initialItem, onClose, onUpdated }: Tas
     },
     [itemId]
   );
+
+  function handleSave() {
+    if (!draft) return;
+    clearTimeout(timerRef.current);
+    // Merge any pending debounced changes + current description
+    const description = editorRef.current?.innerHTML ?? "";
+    const toSave = {
+      ...pendingRef.current,
+      description: description === "<br>" ? null : description,
+    };
+    pendingRef.current = {};
+    void updateItem(itemId, toSave as Parameters<typeof updateItem>[1]);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }
 
   function patch(updates: Partial<ItemData>) {
     const next = draft ? { ...draft, ...updates } : null;
@@ -306,6 +323,18 @@ export function TaskDetailPanel({ itemId, initialItem, onClose, onUpdated }: Tas
           className="flex-1 bg-transparent text-sm font-semibold text-foreground outline-none"
           placeholder="Task title"
         />
+        <button
+          onClick={handleSave}
+          className={cn(
+            "flex flex-none items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold transition-all",
+            saved
+              ? "bg-green-500/10 text-green-600 dark:text-green-400"
+              : "bg-brand-500 text-white hover:bg-brand-600"
+          )}
+        >
+          {saved ? <Check size={11} /> : null}
+          {saved ? "Saved" : "Save"}
+        </button>
         <button
           onClick={onClose}
           className="flex h-6 w-6 flex-none items-center justify-center rounded-md text-muted-foreground hover:bg-muted"

@@ -32,6 +32,7 @@ export interface ItemData {
   scheduled_date: string | null;
   scheduled_time: string | null;
   duration_estimate: number | null;
+  duration_actual: number | null;
   due_date: string | null;
   hard_deadline: boolean;
   is_fixed: boolean;
@@ -39,5 +40,6 @@ export interface ItemData {
   waiting_for: string | null;
   subtasks: Subtask[];
   metadata: Record<string, unknown> | null;
+  completed_at: string | null;
   created_at: string;
 }

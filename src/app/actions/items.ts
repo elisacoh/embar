@@ -99,9 +99,12 @@ export async function updateItem(
     state: string;
     urgency: string;
     work_type: string | null;
+    entity_id: string | null;
     scheduled_date: string | null;
     scheduled_time: string | null;
     duration_estimate: number | null;
+    duration_actual: number | null;
+    completed_at: string | null;
     due_date: string | null;
     hard_deadline: boolean;
     is_fixed: boolean;

@@ -14,6 +14,10 @@ import { QuickCreateModal } from "./QuickCreateModal";
 import { TaskDetailPanel } from "./TaskDetailPanel";
 import { EntityModal } from "@/components/entities/EntityModal";
 import { EntityView } from "@/components/entities/EntityView";
+import { TodayView } from "./TodayView";
+import { WeekView } from "./WeekView";
+import { MonthView } from "./MonthView";
+import { AllView } from "./AllView";
 import { createClient } from "@/lib/supabase/client";
 import { useUIStore } from "@/stores/ui";
 import { cn } from "@/lib/utils";
@@ -65,6 +69,7 @@ export function TasksModule() {
   const [panelInitialItem, setPanelInitialItem] = useState<ItemData | undefined>(undefined);
   const [deleteTarget, setDeleteTarget] = useState<EntityData | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [lastCreatedItem, setLastCreatedItem] = useState<ItemData | undefined>(undefined);
 
   const activeWorkspaceId = useUIStore((s) => s.activeWorkspaceId);
   const showAllWorkspaces = useUIStore((s) => s.showAllWorkspaces);
@@ -209,10 +214,12 @@ export function TasksModule() {
   // ── Item handlers ────────────────────────────────────────────────────────────
 
   function handleItemCreated(item: ItemData) {
-    // Realtime will pick it up if entity matches; also add optimistically
+    // Optimistic update for EntityView
     if (item.entity_id === activeEntityId) {
       setItems((prev) => [...prev, item]);
     }
+    // Optimistic update for TodayView (which owns its own items state)
+    setLastCreatedItem(item);
     setShowQuickCreate(false);
   }
 
@@ -273,36 +280,85 @@ export function TasksModule() {
           </button>
         </div>
 
-        {activeEntity ? (
-          <EntityView
-            entity={activeEntity}
-            items={items}
-            onNewTask={() => setShowQuickCreate(true)}
-            onSelectItem={handleSelectItem}
-            onToggleDone={handleToggleDone}
-            onDeleteItem={handleDeleteItem}
-            selectedItemId={selectedItemId}
-          />
-        ) : (
-          <div className="flex flex-1 items-center justify-center overflow-auto pb-28">
-            <div className="flex max-w-xs flex-col items-center gap-3 text-center">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted">
-                <Icon size={26} strokeWidth={1.5} className="text-muted-foreground" />
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm font-medium text-foreground">{title}</p>
-                <p className="text-sm text-muted-foreground">{description}</p>
-              </div>
-              <button
-                onClick={() => setShowQuickCreate(true)}
-                className="mt-1 flex items-center gap-1.5 rounded-lg bg-brand-500 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-brand-600"
-              >
-                <Plus size={13} />
-                New task
-              </button>
-            </div>
+        {/* TodayView stays mounted always so its fetch runs in the background */}
+        {activeWorkspaceId && (
+          <div className={cn("h-full", activeTimeView !== "today" && "hidden")}>
+            <TodayView
+              workspaceId={activeWorkspaceId}
+              entityId={activeEntityId}
+              entities={entities}
+              onSelectItem={handleSelectItem}
+              selectedItemId={selectedItemId}
+              onNewTask={() => setShowQuickCreate(true)}
+              pendingItem={lastCreatedItem}
+            />
           </div>
         )}
+
+        {activeTimeView === "week" && activeWorkspaceId && (
+          <WeekView
+            workspaceId={activeWorkspaceId}
+            entityId={activeEntityId}
+            entities={entities}
+            onSelectItem={handleSelectItem}
+            selectedItemId={selectedItemId}
+          />
+        )}
+
+        {activeTimeView === "month" && activeWorkspaceId && (
+          <MonthView
+            workspaceId={activeWorkspaceId}
+            entityId={activeEntityId}
+            entities={entities}
+            onSelectItem={handleSelectItem}
+            selectedItemId={selectedItemId}
+          />
+        )}
+
+        {activeTimeView === "all" && activeWorkspaceId && (
+          <AllView
+            workspaceId={activeWorkspaceId}
+            entityId={activeEntityId}
+            entities={entities}
+            onSelectItem={handleSelectItem}
+            selectedItemId={selectedItemId}
+          />
+        )}
+
+        {activeTimeView !== "today" &&
+          activeTimeView !== "week" &&
+          activeTimeView !== "month" &&
+          activeTimeView !== "all" &&
+          (activeEntity ? (
+            <EntityView
+              entity={activeEntity}
+              items={items}
+              onNewTask={() => setShowQuickCreate(true)}
+              onSelectItem={handleSelectItem}
+              onToggleDone={handleToggleDone}
+              onDeleteItem={handleDeleteItem}
+              selectedItemId={selectedItemId}
+            />
+          ) : (
+            <div className="flex flex-1 items-center justify-center overflow-auto pb-28">
+              <div className="flex max-w-xs flex-col items-center gap-3 text-center">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted">
+                  <Icon size={26} strokeWidth={1.5} className="text-muted-foreground" />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-medium text-foreground">{title}</p>
+                  <p className="text-sm text-muted-foreground">{description}</p>
+                </div>
+                <button
+                  onClick={() => setShowQuickCreate(true)}
+                  className="mt-1 flex items-center gap-1.5 rounded-lg bg-brand-500 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-brand-600"
+                >
+                  <Plus size={13} />
+                  New task
+                </button>
+              </div>
+            </div>
+          ))}
       </div>
 
       {showEntityModal && activeWorkspaceId && (
