@@ -6,7 +6,6 @@ import {
   ChevronRight,
   Plus,
   Trash2,
-  GripVertical,
   Pause,
   Play,
   CheckCircle2,
@@ -18,6 +17,7 @@ import {
   MoveRight,
   CalendarClock,
   RotateCcw,
+  ChevronDown,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { normalizeItem } from "@/lib/normalize";
@@ -374,6 +374,12 @@ function PlannedCard({
   onFocus,
   onContextMenu,
 }: PlannedCardProps) {
+  const [subtasksOpen, setSubtasksOpen] = useState(false);
+  const isCritical = item.urgency === "critical";
+  const isUrgent = item.urgency === "urgent";
+  const isOverdue = item.due_date ? new Date(item.due_date + "T23:59:59") < new Date() : false;
+  const doneCount = item.subtasks.filter((s) => s.done).length;
+
   return (
     <div
       draggable
@@ -382,34 +388,108 @@ function PlannedCard({
       onClick={onSelect}
       onContextMenu={onContextMenu}
       className={cn(
-        "group relative cursor-pointer select-none overflow-hidden rounded-xl border border-border bg-card p-3 shadow-sm transition-all",
-        "hover:border-border/80 hover:shadow-md",
-        isSelected && "border-brand-500/30 ring-1 ring-brand-500",
+        "group relative cursor-pointer select-none overflow-hidden rounded-xl border bg-card transition-all",
+        "hover:shadow-md",
+        isCritical
+          ? "border-destructive/25 bg-destructive/[0.015]"
+          : isUrgent
+            ? "border-amber-500/25"
+            : "border-border",
+        isSelected && "ring-1 ring-brand-500",
         isDragging && "opacity-30 shadow-none"
       )}
     >
-      {/* Entity + time row */}
-      <div className="mb-2 flex items-center gap-1.5">
-        {entity && (
-          <span
-            className="h-2 w-2 flex-none rounded-full"
-            style={{ backgroundColor: entity.color }}
-          />
-        )}
-        {item.scheduled_time && (
-          <span className="text-[10px] font-medium tabular-nums text-muted-foreground">
-            {formatTime(item.scheduled_time)}
-          </span>
-        )}
-        {item.duration_estimate != null && (
-          <span className="ml-auto text-[10px] text-muted-foreground/60">
-            {formatDuration(item.duration_estimate)}
-          </span>
+      {/* Urgency accent strip */}
+      {(isCritical || isUrgent) && (
+        <div
+          className={cn(
+            "absolute inset-y-0 left-0 w-[3px]",
+            isCritical ? "bg-destructive" : "bg-amber-400"
+          )}
+        />
+      )}
+
+      <div className={cn("flex flex-col gap-2 p-3", (isCritical || isUrgent) && "pl-4")}>
+        {/* Top: entity + time + due date */}
+        <div className="flex items-center gap-1.5">
+          {entity && (
+            <span
+              className="h-1.5 w-1.5 flex-none rounded-full"
+              style={{ backgroundColor: entity.color }}
+            />
+          )}
+          {item.scheduled_time && (
+            <span className="text-[10px] tabular-nums text-muted-foreground/70">
+              {formatTime(item.scheduled_time)}
+            </span>
+          )}
+          {item.due_date && (
+            <span
+              className={cn(
+                "ml-auto text-[10px] font-medium tabular-nums",
+                isOverdue ? "text-destructive" : "text-muted-foreground/50"
+              )}
+            >
+              {isOverdue ? "⚠ " : ""}
+              {formatDate(item.due_date)}
+            </span>
+          )}
+        </div>
+
+        {/* Title */}
+        <p className="line-clamp-2 text-sm font-medium leading-snug text-foreground">
+          {item.title}
+        </p>
+
+        {/* Bottom: subtasks + duration */}
+        <div className="flex items-center gap-2">
+          {item.subtasks.length > 0 && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSubtasksOpen((o) => !o);
+              }}
+              className="flex items-center gap-0.5 text-[10px] text-muted-foreground/50 transition-colors hover:text-muted-foreground"
+            >
+              <ChevronDown
+                size={9}
+                className={cn("transition-transform", subtasksOpen && "rotate-180")}
+              />
+              {doneCount}/{item.subtasks.length}
+            </button>
+          )}
+          {item.duration_estimate != null && (
+            <span className="ml-auto rounded-full bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground/70">
+              {formatDuration(item.duration_estimate)}
+            </span>
+          )}
+        </div>
+
+        {/* Subtask list */}
+        {subtasksOpen && item.subtasks.length > 0 && (
+          <div className="space-y-1 border-t border-border/40 pt-2">
+            {item.subtasks.map((s) => (
+              <div key={s.id} className="flex items-center gap-1.5">
+                <div
+                  className={cn(
+                    "h-3 w-3 flex-none rounded-full border",
+                    s.done ? "border-green-500 bg-green-500/20" : "border-muted-foreground/30"
+                  )}
+                />
+                <span
+                  className={cn(
+                    "text-[11px] leading-snug",
+                    s.done ? "text-muted-foreground/50 line-through" : "text-foreground/80"
+                  )}
+                >
+                  {s.title}
+                </span>
+              </div>
+            ))}
+          </div>
         )}
       </div>
-
-      {/* Title */}
-      <p className="line-clamp-2 text-xs font-medium leading-snug text-foreground">{item.title}</p>
 
       {/* Hover quick actions */}
       <div className="absolute inset-x-0 bottom-0 flex translate-y-full items-center gap-1 bg-gradient-to-t from-card via-card/95 to-transparent px-2 pb-2 pt-4 opacity-0 transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100">
@@ -418,7 +498,6 @@ function PlannedCard({
             e.stopPropagation();
             onFocus();
           }}
-          title="Set as focus"
           className="flex items-center gap-1 rounded-md bg-brand-500/10 px-1.5 py-1 text-[10px] font-semibold text-brand-600 transition-colors hover:bg-brand-500/20 dark:text-brand-400"
         >
           <PlayIcon size={9} />
@@ -429,19 +508,7 @@ function PlannedCard({
             e.stopPropagation();
             onSelect();
           }}
-          title="Reschedule"
-          className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted"
-        >
-          <Calendar size={9} />
-          Reschedule
-        </button>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onSelect();
-          }}
-          title="Edit"
-          className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted"
+          className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] text-muted-foreground transition-colors hover:bg-muted"
         >
           <Pencil size={9} />
           Edit
@@ -478,8 +545,11 @@ function TaskCard({
   onSelect,
   onContextMenu,
 }: TaskCardProps) {
-  const hasBadges =
-    item.urgency !== "normal" || item.scheduled_time || item.duration_estimate || overdueLabel;
+  const [subtasksOpen, setSubtasksOpen] = useState(false);
+  const isCritical = item.urgency === "critical";
+  const isUrgent = item.urgency === "urgent";
+  const isOverdue = item.due_date ? new Date(item.due_date + "T23:59:59") < new Date() : false;
+  const doneCount = item.subtasks.filter((s) => s.done).length;
 
   return (
     <div
@@ -489,19 +559,31 @@ function TaskCard({
       onClick={onSelect}
       onContextMenu={onContextMenu}
       className={cn(
-        "group mx-4 mb-1.5 w-[min(100%-2rem,480px)] cursor-pointer select-none rounded-xl border border-border bg-card p-2.5 shadow-sm transition-all",
-        "hover:border-border/80 hover:shadow-md",
+        "group relative mx-4 mb-1.5 w-[min(100%-2rem,480px)] cursor-pointer select-none overflow-hidden rounded-xl border bg-card transition-all",
+        "hover:shadow-sm",
+        isCritical
+          ? "border-destructive/25 bg-destructive/[0.015]"
+          : isUrgent
+            ? "border-amber-500/25"
+            : "border-border",
         item.state === "done" && "opacity-50",
-        isSelected && "border-brand-500/30 ring-1 ring-brand-500",
-        isDragging && "opacity-30 shadow-none",
+        isSelected && "ring-1 ring-brand-500",
+        isDragging && "opacity-30",
         completing && "opacity-40"
       )}
     >
-      <div className="flex items-start gap-2">
-        <GripVertical
-          size={13}
-          className="mt-0.5 flex-none cursor-grab text-muted-foreground/20 transition-colors group-hover:text-muted-foreground/50"
+      {/* Urgency accent strip */}
+      {(isCritical || isUrgent) && (
+        <div
+          className={cn(
+            "absolute inset-y-0 left-0 w-[3px]",
+            isCritical ? "bg-destructive" : "bg-amber-400"
+          )}
         />
+      )}
+
+      <div className={cn("flex items-start gap-2.5 p-2.5", (isCritical || isUrgent) && "pl-4")}>
+        {/* Checkbox */}
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -515,7 +597,9 @@ function TaskCard({
               "flex h-4 w-4 items-center justify-center rounded-full border-2 transition-all duration-200",
               completing
                 ? "border-green-500 bg-green-500 text-white"
-                : "border-muted-foreground/30 hover:border-brand-500"
+                : isCritical
+                  ? "border-destructive/40 hover:border-destructive"
+                  : "border-muted-foreground/30 hover:border-brand-500"
             )}
           >
             {completing && (
@@ -533,42 +617,70 @@ function TaskCard({
         </button>
 
         <div className="min-w-0 flex-1">
-          <p
-            className={cn(
-              "text-sm leading-snug",
-              (completing || item.state === "done") && "text-muted-foreground line-through"
+          {/* Title + due date */}
+          <div className="flex items-start justify-between gap-2">
+            <p
+              className={cn(
+                "text-sm leading-snug",
+                completing || item.state === "done"
+                  ? "text-muted-foreground line-through"
+                  : "text-foreground"
+              )}
+            >
+              {item.title}
+            </p>
+            {item.due_date && (
+              <span
+                className={cn(
+                  "flex-none text-[10px] tabular-nums",
+                  isOverdue || overdueLabel
+                    ? "font-semibold text-destructive"
+                    : "text-muted-foreground/50"
+                )}
+              >
+                {formatDate(item.due_date)}
+              </span>
             )}
-          >
-            {item.title}
-          </p>
+          </div>
 
-          {hasBadges && (
-            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              {overdueLabel && (
-                <span className="rounded-full bg-red-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-red-600 dark:text-red-400">
-                  {overdueLabel}
-                </span>
-              )}
-              {item.urgency === "critical" && (
-                <span className="rounded-full bg-destructive/10 px-1.5 py-0.5 text-[10px] font-semibold text-destructive">
-                  Critical
-                </span>
-              )}
-              {item.urgency === "urgent" && (
-                <span className="rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
-                  Urgent
-                </span>
-              )}
-              {item.scheduled_time && (
-                <span className="text-[10px] text-muted-foreground">
-                  {formatTime(item.scheduled_time)}
-                </span>
-              )}
-              {item.duration_estimate != null && (
-                <span className="text-[10px] text-muted-foreground">
-                  {formatDuration(item.duration_estimate)}
-                </span>
-              )}
+          {/* Subtasks toggle */}
+          {item.subtasks.length > 0 && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSubtasksOpen((o) => !o);
+              }}
+              className="mt-1 flex items-center gap-0.5 text-[10px] text-muted-foreground/50 transition-colors hover:text-muted-foreground"
+            >
+              <ChevronDown
+                size={9}
+                className={cn("transition-transform", subtasksOpen && "rotate-180")}
+              />
+              {doneCount}/{item.subtasks.length} subtasks
+            </button>
+          )}
+
+          {subtasksOpen && (
+            <div className="mt-1.5 space-y-1">
+              {item.subtasks.map((s) => (
+                <div key={s.id} className="flex items-center gap-1.5">
+                  <div
+                    className={cn(
+                      "h-3 w-3 flex-none rounded-full border",
+                      s.done ? "border-green-500 bg-green-500/20" : "border-muted-foreground/30"
+                    )}
+                  />
+                  <span
+                    className={cn(
+                      "text-[11px]",
+                      s.done ? "text-muted-foreground/50 line-through" : "text-foreground/80"
+                    )}
+                  >
+                    {s.title}
+                  </span>
+                </div>
+              ))}
             </div>
           )}
         </div>
