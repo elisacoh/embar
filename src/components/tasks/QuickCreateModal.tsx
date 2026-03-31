@@ -500,7 +500,7 @@ export function QuickCreateModal({
               }}
               placeholder="Add a description…"
               rows={3}
-              className="mb-4 w-full resize-none rounded-xl bg-muted/40 px-4 py-3 text-sm text-foreground outline-none placeholder:text-muted-foreground/40 focus:bg-muted/60"
+              className="mb-4 w-full resize-none bg-transparent px-0 py-0 text-sm text-foreground outline-none placeholder:text-muted-foreground/30"
             />
           ) : (
             <button
@@ -532,7 +532,7 @@ export function QuickCreateModal({
 
           {/* Add subtask */}
           {showSubtaskInput ? (
-            <div className="mb-4 flex items-center gap-2.5 rounded-xl bg-muted/40 px-4 py-2.5">
+            <div className="mb-4 flex items-center gap-2.5">
               <Plus size={13} className="flex-none text-muted-foreground/50" />
               <input
                 ref={subtaskRef}
