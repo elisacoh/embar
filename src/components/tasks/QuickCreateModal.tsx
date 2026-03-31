@@ -165,6 +165,15 @@ export function QuickCreateModal({
     if (!time) setIsFixed(false);
   }, [time]);
 
+  // Auto-set state based on date: unplanned ↔ planned
+  useEffect(() => {
+    if (date) {
+      setState((prev) => (prev === "unplanned" ? "planned" : prev));
+    } else {
+      setState((prev) => (prev === "planned" ? "unplanned" : prev));
+    }
+  }, [date]);
+
   // Auto-focus description when expanded
   useEffect(() => {
     if (showDescription) setTimeout(() => descRef.current?.focus(), 0);
