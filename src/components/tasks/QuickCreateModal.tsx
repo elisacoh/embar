@@ -205,6 +205,31 @@ function MiniCalendar({
   );
 }
 
+// ── Time input (auto-opens picker on mount) ───────────────────────────────────
+
+function TimeInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.focus();
+    try {
+      (el as HTMLInputElement & { showPicker?: () => void }).showPicker?.();
+    } catch {
+      /* not supported in all browsers */
+    }
+  }, []);
+  return (
+    <input
+      ref={ref}
+      type="time"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-brand-400"
+    />
+  );
+}
+
 // ── Property chip ─────────────────────────────────────────────────────────────
 
 function PropChip({
@@ -481,7 +506,7 @@ export function QuickCreateModal({
             <button
               type="button"
               onClick={() => setShowDescription(true)}
-              className="mb-4 text-sm text-muted-foreground/40 transition-colors hover:text-muted-foreground"
+              className="mb-3 block text-sm text-muted-foreground/40 transition-colors hover:text-muted-foreground"
             >
               Add description
             </button>
@@ -529,7 +554,7 @@ export function QuickCreateModal({
             <button
               type="button"
               onClick={() => setShowSubtaskInput(true)}
-              className="mb-4 text-sm text-muted-foreground/40 transition-colors hover:text-muted-foreground"
+              className="mb-4 block text-sm text-muted-foreground/40 transition-colors hover:text-muted-foreground"
             >
               + Add subtask
             </button>
@@ -614,15 +639,12 @@ export function QuickCreateModal({
 
           {activePicker === "time" && (
             <div className="mt-3 rounded-xl border border-border bg-muted/30 p-3">
-              <input
-                type="time"
+              <TimeInput
                 value={time}
-                onChange={(e) => {
-                  setTime(e.target.value);
-                  if (e.target.value) setActivePicker(null);
+                onChange={(v) => {
+                  setTime(v);
+                  if (v) setActivePicker(null);
                 }}
-                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-brand-400"
-                autoFocus
               />
             </div>
           )}
