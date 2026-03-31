@@ -3,6 +3,73 @@
 import { createClient } from "@/lib/supabase/server";
 import type { EntityData } from "@/lib/types";
 
+async function authedClient() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return { supabase, user };
+}
+
+export async function renameEntity(
+  id: string,
+  name: string
+): Promise<{ ok: true } | { error: string }> {
+  const { supabase, user } = await authedClient();
+  if (!user) return { error: "Not authenticated" };
+  const { error } = await supabase.from("entities").update({ name }).eq("id", id);
+  return error ? { error: error.message } : { ok: true };
+}
+
+export async function recolorEntity(
+  id: string,
+  color: string
+): Promise<{ ok: true } | { error: string }> {
+  const { supabase, user } = await authedClient();
+  if (!user) return { error: "Not authenticated" };
+  const { error } = await supabase.from("entities").update({ color }).eq("id", id);
+  return error ? { error: error.message } : { ok: true };
+}
+
+export async function archiveEntity(id: string): Promise<{ ok: true } | { error: string }> {
+  const { supabase, user } = await authedClient();
+  if (!user) return { error: "Not authenticated" };
+  const { error } = await supabase
+    .from("entities")
+    .update({ deleted_at: new Date().toISOString(), metadata: { archived: true } })
+    .eq("id", id);
+  return error ? { error: error.message } : { ok: true };
+}
+
+export async function deleteEntity(id: string): Promise<{ ok: true } | { error: string }> {
+  const { supabase, user } = await authedClient();
+  if (!user) return { error: "Not authenticated" };
+  // Soft-delete entity; cascade soft-deletes items via DB trigger would be Sprint 3.
+  // For now delete_at on entity is sufficient — items are filtered by entity.
+  const { error } = await supabase
+    .from("entities")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", id);
+  return error ? { error: error.message } : { ok: true };
+}
+
+export async function reorderEntities(
+  orderedIds: string[]
+): Promise<{ ok: true } | { error: string }> {
+  const { supabase, user } = await authedClient();
+  if (!user) return { error: "Not authenticated" };
+  const results = await Promise.all(
+    orderedIds.map((id, i) =>
+      supabase
+        .from("entities")
+        .update({ position: (i + 1) * 1000 })
+        .eq("id", id)
+    )
+  );
+  const failed = results.find((r) => r.error);
+  return failed?.error ? { error: failed.error.message } : { ok: true };
+}
+
 export async function createEntity(params: {
   workspaceId: string;
   name: string;

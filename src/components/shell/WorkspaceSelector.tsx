@@ -54,6 +54,7 @@ export function WorkspaceSelector({ initialWorkspaces, initialActiveId }: Worksp
     setOpen(false);
     setActiveId(ws.id);
     useUIStore.getState().setActiveWorkspaceId(ws.id);
+    if (!ws.is_default) useUIStore.getState().setShowAllWorkspaces(false);
     await setLastWorkspace(ws.id);
   }
 

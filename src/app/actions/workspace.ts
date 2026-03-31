@@ -56,8 +56,8 @@ export async function createWorkspace(
 
   const { data: workspace, error } = await admin
     .from("workspaces")
-    .insert({ name, type, owner_id: user.id })
-    .select("id, name, type")
+    .insert({ name, type, owner_id: user.id, is_default: false, is_personal: false })
+    .select("id, name, type, is_default, is_personal")
     .single();
 
   if (error || !workspace) {

@@ -7,13 +7,16 @@ const STORAGE_KEY = "embar-module";
 interface UIStore {
   activeModule: Module;
   activeWorkspaceId: string;
+  showAllWorkspaces: boolean;
   setActiveModule: (module: Module) => void;
   setActiveWorkspaceId: (id: string) => void;
+  setShowAllWorkspaces: (value: boolean) => void;
 }
 
 export const useUIStore = create<UIStore>()((set) => ({
   activeModule: "dashboard",
   activeWorkspaceId: "",
+  showAllWorkspaces: false,
   setActiveModule: (module) => {
     set({ activeModule: module });
     if (typeof window !== "undefined") {
@@ -21,4 +24,5 @@ export const useUIStore = create<UIStore>()((set) => ({
     }
   },
   setActiveWorkspaceId: (id) => set({ activeWorkspaceId: id }),
+  setShowAllWorkspaces: (value) => set({ showAllWorkspaces: value }),
 }));
