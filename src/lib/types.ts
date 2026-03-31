@@ -42,4 +42,5 @@ export interface ItemData {
   metadata: Record<string, unknown> | null;
   completed_at: string | null;
   created_at: string;
+  time_spent_ms: number;
 }

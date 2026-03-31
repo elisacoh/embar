@@ -13,5 +13,6 @@ export function normalizeItem(raw: Record<string, unknown>): ItemData {
     duration_actual: (raw.duration_actual as number | null) ?? null,
     completed_at: (raw.completed_at as string | null) ?? null,
     metadata: (raw.metadata as Record<string, unknown> | null) ?? null,
+    time_spent_ms: (raw.time_spent_ms as number | null) ?? 0,
   };
 }

@@ -33,7 +33,6 @@ function toLocalDateStr(d: Date): string {
 
 const TODAY = toLocalDateStr(new Date());
 const TIMER_LS_KEY = "embar:focus-timer";
-const ITEM_TIMERS_LS_KEY = "embar:item-timers";
 
 const SECTIONS = [
   { state: "focus", label: "Focus", dot: "bg-brand-500", color: "text-brand-500" },
@@ -104,40 +103,6 @@ function saveTimer(t: TimerState | null) {
 
 function timerMs(t: TimerState): number {
   return t.elapsed + (t.startedAt ? Date.now() - t.startedAt : 0);
-}
-
-// Per-item elapsed time bank (survives focus → later → focus round trips)
-function loadItemTimers(): Record<string, number> {
-  try {
-    const raw = localStorage.getItem(ITEM_TIMERS_LS_KEY);
-    return raw ? (JSON.parse(raw) as Record<string, number>) : {};
-  } catch {
-    return {};
-  }
-}
-
-function getItemElapsed(itemId: string): number {
-  return loadItemTimers()[itemId] ?? 0;
-}
-
-function bankItemElapsed(itemId: string, ms: number) {
-  try {
-    const all = loadItemTimers();
-    all[itemId] = (all[itemId] ?? 0) + ms;
-    localStorage.setItem(ITEM_TIMERS_LS_KEY, JSON.stringify(all));
-  } catch {
-    /* ignore */
-  }
-}
-
-function clearItemElapsed(itemId: string) {
-  try {
-    const all = loadItemTimers();
-    delete all[itemId];
-    localStorage.setItem(ITEM_TIMERS_LS_KEY, JSON.stringify(all));
-  } catch {
-    /* ignore */
-  }
 }
 
 function formatElapsed(ms: number): string {
@@ -906,7 +871,8 @@ export function TodayView({
   // ── Timer operations ──────────────────────────────────────────────────────
 
   function startTimerFor(itemId: string) {
-    const banked = getItemElapsed(itemId);
+    // Read banked ms from the item's DB-persisted field
+    const banked = items.find((i) => i.id === itemId)?.time_spent_ms ?? 0;
     setTimer({ itemId, elapsed: banked, startedAt: Date.now() });
   }
 
@@ -924,21 +890,23 @@ export function TodayView({
     });
   }
 
+  // Bank elapsed to DB and stop the timer.
+  // saveForLater=true  → persist time_spent_ms so it resumes next focus session
+  // saveForLater=false → reset time_spent_ms to 0 (task done / hard reset)
   function stopTimerAndGetMinutes(saveForLater = false): number {
     const t = timerRef.current;
     if (!t) return 0;
     const ms = timerMs(t);
-    if (saveForLater) {
-      bankItemElapsed(t.itemId, ms);
-    } else {
-      clearItemElapsed(t.itemId);
-    }
+    const newMs = saveForLater ? ms : 0;
+    setItems((prev) => prev.map((i) => (i.id === t.itemId ? { ...i, time_spent_ms: newMs } : i)));
+    void updateItem(t.itemId, { time_spent_ms: newMs });
     setTimer(null);
     return Math.max(1, Math.round(ms / 60000));
   }
 
   function handleResetTimer(itemId: string) {
-    clearItemElapsed(itemId);
+    setItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, time_spent_ms: 0 } : i)));
+    void updateItem(itemId, { time_spent_ms: 0 });
     if (timer?.itemId === itemId) {
       setTimer({ itemId, elapsed: 0, startedAt: Date.now() });
     }
@@ -982,7 +950,6 @@ export function TodayView({
   }
 
   function completeItem(id: string, extraUpdates: Record<string, unknown> = {}) {
-    clearItemElapsed(id);
     const completedAt = new Date().toISOString();
     setCompletingIds((prev) => new Set(prev).add(id));
     setTimeout(() => {
@@ -1591,7 +1558,7 @@ export function TodayView({
                 Move to someday
               </button>
             )}
-            {(contextMenu.item.state === "focus" || getItemElapsed(contextMenu.item.id) > 0) && (
+            {(contextMenu.item.state === "focus" || (contextMenu.item.time_spent_ms ?? 0) > 0) && (
               <button
                 onClick={() => {
                   handleResetTimer(contextMenu.item.id);
