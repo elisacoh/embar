@@ -17,6 +17,7 @@ import {
   Pencil,
   MoveRight,
   CalendarClock,
+  RotateCcw,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { normalizeItem } from "@/lib/normalize";
@@ -32,6 +33,7 @@ function toLocalDateStr(d: Date): string {
 
 const TODAY = toLocalDateStr(new Date());
 const TIMER_LS_KEY = "embar:focus-timer";
+const ITEM_TIMERS_LS_KEY = "embar:item-timers";
 
 const SECTIONS = [
   { state: "focus", label: "Focus", dot: "bg-brand-500", color: "text-brand-500" },
@@ -102,6 +104,40 @@ function saveTimer(t: TimerState | null) {
 
 function timerMs(t: TimerState): number {
   return t.elapsed + (t.startedAt ? Date.now() - t.startedAt : 0);
+}
+
+// Per-item elapsed time bank (survives focus → later → focus round trips)
+function loadItemTimers(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(ITEM_TIMERS_LS_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, number>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function getItemElapsed(itemId: string): number {
+  return loadItemTimers()[itemId] ?? 0;
+}
+
+function bankItemElapsed(itemId: string, ms: number) {
+  try {
+    const all = loadItemTimers();
+    all[itemId] = (all[itemId] ?? 0) + ms;
+    localStorage.setItem(ITEM_TIMERS_LS_KEY, JSON.stringify(all));
+  } catch {
+    /* ignore */
+  }
+}
+
+function clearItemElapsed(itemId: string) {
+  try {
+    const all = loadItemTimers();
+    delete all[itemId];
+    localStorage.setItem(ITEM_TIMERS_LS_KEY, JSON.stringify(all));
+  } catch {
+    /* ignore */
+  }
 }
 
 function formatElapsed(ms: number): string {
@@ -870,7 +906,8 @@ export function TodayView({
   // ── Timer operations ──────────────────────────────────────────────────────
 
   function startTimerFor(itemId: string) {
-    setTimer({ itemId, elapsed: 0, startedAt: Date.now() });
+    const banked = getItemElapsed(itemId);
+    setTimer({ itemId, elapsed: banked, startedAt: Date.now() });
   }
 
   function pauseTimer() {
@@ -887,12 +924,24 @@ export function TodayView({
     });
   }
 
-  function stopTimerAndGetMinutes(): number {
+  function stopTimerAndGetMinutes(saveForLater = false): number {
     const t = timerRef.current;
     if (!t) return 0;
     const ms = timerMs(t);
+    if (saveForLater) {
+      bankItemElapsed(t.itemId, ms);
+    } else {
+      clearItemElapsed(t.itemId);
+    }
     setTimer(null);
     return Math.max(1, Math.round(ms / 60000));
+  }
+
+  function handleResetTimer(itemId: string) {
+    clearItemElapsed(itemId);
+    if (timer?.itemId === itemId) {
+      setTimer({ itemId, elapsed: 0, startedAt: Date.now() });
+    }
   }
 
   // ── Handlers: focus actions ───────────────────────────────────────────────
@@ -923,17 +972,17 @@ export function TodayView({
   }
 
   function handleLater(item: ItemData) {
-    const mins = stopTimerAndGetMinutes();
+    stopTimerAndGetMinutes(true); // bank elapsed, don't save duration_actual
     const updates = {
-      state: "planned" as const,
-      scheduled_date: viewDateStr,
-      duration_actual: mins,
+      state: "unplanned" as const,
+      scheduled_date: null,
     };
     setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, ...updates } : i)));
     void updateItem(item.id, updates);
   }
 
   function completeItem(id: string, extraUpdates: Record<string, unknown> = {}) {
+    clearItemElapsed(id);
     const completedAt = new Date().toISOString();
     setCompletingIds((prev) => new Set(prev).add(id));
     setTimeout(() => {
@@ -1034,8 +1083,8 @@ export function TodayView({
     const item = items.find((i) => i.id === id);
     if (!item || item.state === targetState) return;
 
-    // Stop timer if item leaves focus
-    if (item.state === "focus") setTimer(null);
+    // Stop timer if item leaves focus — bank elapsed so it can be resumed later
+    if (item.state === "focus") stopTimerAndGetMinutes(true);
 
     // Dropping to done triggers completion animation
     if (targetState === "done") {
@@ -1059,11 +1108,11 @@ export function TodayView({
   function handleConfirmFocusSwap() {
     if (!focusSwap) return;
     const { incomingId, currentItem } = focusSwap;
-    // Move current focus → planned + viewed date
+    // Move current focus → planned + viewed date, banking its timer elapsed
     const displaced = { state: "planned" as const, scheduled_date: viewDateStr };
     setItems((prev) => prev.map((i) => (i.id === currentItem.id ? { ...i, ...displaced } : i)));
     void updateItem(currentItem.id, displaced);
-    setTimer(null);
+    stopTimerAndGetMinutes(true);
     // Move incoming → focus + start timer
     startTimerFor(incomingId);
     applyDrop(incomingId, "focus");
@@ -1540,6 +1589,18 @@ export function TodayView({
               >
                 <MoveRight size={12} className="text-muted-foreground" />
                 Move to someday
+              </button>
+            )}
+            {(contextMenu.item.state === "focus" || getItemElapsed(contextMenu.item.id) > 0) && (
+              <button
+                onClick={() => {
+                  handleResetTimer(contextMenu.item.id);
+                  setContextMenu(null);
+                }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+              >
+                <RotateCcw size={12} className="text-muted-foreground" />
+                Reset timer
               </button>
             )}
             <div className="my-1 border-t border-border" />
