@@ -700,6 +700,7 @@ interface TodayViewProps {
   selectedItemId: string | null;
   onNewTask: () => void;
   pendingItem?: ItemData;
+  viewDate?: Date;
 }
 
 export function TodayView({
@@ -710,7 +711,11 @@ export function TodayView({
   selectedItemId,
   onNewTask,
   pendingItem,
+  viewDate: viewDateProp,
 }: TodayViewProps) {
+  const viewDate = viewDateProp ?? new Date();
+  const viewDateStr = toLocalDateStr(viewDate);
+  const isViewingToday = viewDateStr === TODAY;
   const [items, setItems] = useState<ItemData[]>([]);
   const [scheduleOpen, setScheduleOpen] = useState(true);
   const [completingIds, setCompletingIds] = useState<Set<string>>(new Set());
@@ -780,7 +785,7 @@ export function TodayView({
       .select("*")
       .eq("workspace_id", workspaceId)
       .is("deleted_at", null)
-      .or(`state.neq.done,completed_at.gte.${TODAY}T00:00:00`);
+      .or(`state.neq.done,completed_at.gte.${viewDateStr}T00:00:00`);
 
     if (entityId) q = q.eq("entity_id", entityId);
 
@@ -789,7 +794,7 @@ export function TodayView({
     );
 
     const channel = supabase
-      .channel(`today:${workspaceId}:${entityId ?? "all"}`)
+      .channel(`today:${workspaceId}:${entityId ?? "all"}:${viewDateStr}`)
       .on(
         "postgres_changes",
         {
@@ -818,7 +823,7 @@ export function TodayView({
           setItems((prev) => {
             const exists = prev.some((i) => i.id === updated.id);
             // Drop done items completed on a different day
-            if (updated.state === "done" && !updated.completed_at?.startsWith(TODAY)) {
+            if (updated.state === "done" && !updated.completed_at?.startsWith(viewDateStr)) {
               return prev.filter((i) => i.id !== updated.id);
             }
             return exists
@@ -844,7 +849,7 @@ export function TodayView({
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [workspaceId, entityId]);
+  }, [workspaceId, entityId, viewDateStr]);
 
   // Inject freshly-created item (optimistic, before realtime fires)
   useEffect(() => {
@@ -912,14 +917,18 @@ export function TodayView({
   }
 
   function moveToSomeday(id: string) {
-    const updates = { state: "someday" as const, scheduled_date: TODAY };
+    const updates = { state: "someday" as const, scheduled_date: viewDateStr };
     setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...updates } : i)));
     void updateItem(id, updates);
   }
 
   function handleLater(item: ItemData) {
     const mins = stopTimerAndGetMinutes();
-    const updates = { state: "planned" as const, scheduled_date: TODAY, duration_actual: mins };
+    const updates = {
+      state: "planned" as const,
+      scheduled_date: viewDateStr,
+      duration_actual: mins,
+    };
     setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, ...updates } : i)));
     void updateItem(item.id, updates);
   }
@@ -1008,7 +1017,7 @@ export function TodayView({
   function applyDrop(id: string, targetState: SectionState) {
     const dateUpdates =
       targetState === "planned" || targetState === "someday"
-        ? { scheduled_date: TODAY }
+        ? { scheduled_date: viewDateStr }
         : targetState === "unplanned"
           ? { scheduled_date: null }
           : {};
@@ -1050,8 +1059,8 @@ export function TodayView({
   function handleConfirmFocusSwap() {
     if (!focusSwap) return;
     const { incomingId, currentItem } = focusSwap;
-    // Move current focus → planned + today
-    const displaced = { state: "planned" as const, scheduled_date: TODAY };
+    // Move current focus → planned + viewed date
+    const displaced = { state: "planned" as const, scheduled_date: viewDateStr };
     setItems((prev) => prev.map((i) => (i.id === currentItem.id ? { ...i, ...displaced } : i)));
     void updateItem(currentItem.id, displaced);
     setTimer(null);
@@ -1077,8 +1086,8 @@ export function TodayView({
     const time = `${String(hour).padStart(2, "0")}:00`;
     const needsState = item && (item.state === "carry-on" || item.state === "unplanned");
     const updates = needsState
-      ? { scheduled_time: time, scheduled_date: TODAY, state: "planned" as const }
-      : { scheduled_time: time, scheduled_date: TODAY };
+      ? { scheduled_time: time, scheduled_date: viewDateStr, state: "planned" as const }
+      : { scheduled_time: time, scheduled_date: viewDateStr };
     setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...updates } : i)));
     void updateItem(id, updates);
   }
@@ -1093,13 +1102,13 @@ export function TodayView({
         case "carry-on":
           return true;
         case "planned":
-          return i.scheduled_date === TODAY;
+          return i.scheduled_date === viewDateStr;
         case "unplanned":
-          return i.scheduled_date === null || i.scheduled_date === TODAY;
+          return i.scheduled_date === null || i.scheduled_date === viewDateStr;
         case "someday":
-          return i.scheduled_date === TODAY;
+          return i.scheduled_date === viewDateStr;
         case "done":
-          return i.completed_at?.startsWith(TODAY) ?? false;
+          return i.completed_at?.startsWith(viewDateStr) ?? false;
       }
     });
     // Planned items sorted by scheduled_time ascending
@@ -1118,7 +1127,7 @@ export function TodayView({
   const focusItems = sections.find((s) => s.state === "focus")?.items ?? [];
 
   const scheduledItems = items
-    .filter((i) => i.scheduled_date === TODAY && i.scheduled_time)
+    .filter((i) => i.scheduled_date === viewDateStr && i.scheduled_time)
     .sort((a, b) => (a.scheduled_time ?? "").localeCompare(b.scheduled_time ?? ""));
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -1428,7 +1437,7 @@ export function TodayView({
                     </div>
                   ))}
 
-                  <CurrentTimeLine />
+                  {isViewingToday && <CurrentTimeLine />}
 
                   {/* Scheduled items — draggable within calendar */}
                   {scheduledItems.map((item) => {

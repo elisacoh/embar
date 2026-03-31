@@ -8,7 +8,26 @@ import {
   ListChecks,
   Plus,
   AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
+
+function toLocalDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function formatViewDate(d: Date): string {
+  const str = toLocalDateStr(d);
+  const now = new Date();
+  if (str === toLocalDateStr(now)) return "Today";
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (str === toLocalDateStr(yesterday)) return "Yesterday";
+  const tomorrow = new Date(now);
+  tomorrow.setDate(now.getDate() + 1);
+  if (str === toLocalDateStr(tomorrow)) return "Tomorrow";
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
 import { TasksTopNav, type TimeView } from "./TasksTopNav";
 import { QuickCreateModal } from "./QuickCreateModal";
 import { TaskDetailPanel } from "./TaskDetailPanel";
@@ -70,6 +89,7 @@ export function TasksModule() {
   const [deleteTarget, setDeleteTarget] = useState<EntityData | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [lastCreatedItem, setLastCreatedItem] = useState<ItemData | undefined>(undefined);
+  const [viewDate, setViewDate] = useState(() => new Date());
 
   const activeWorkspaceId = useUIStore((s) => s.activeWorkspaceId);
   const showAllWorkspaces = useUIStore((s) => s.showAllWorkspaces);
@@ -90,6 +110,11 @@ export function TasksModule() {
   useEffect(() => {
     setActiveEntityId(null);
   }, [showAllWorkspaces]);
+
+  // Reset view date when leaving today view
+  useEffect(() => {
+    if (activeTimeView !== "today") setViewDate(new Date());
+  }, [activeTimeView]);
 
   // Fetch entities
   useEffect(() => {
@@ -270,7 +295,44 @@ export function TasksModule() {
         />
 
         {/* Action bar */}
-        <div className="flex h-9 flex-none items-center justify-end border-b border-border px-4">
+        <div className="flex h-9 flex-none items-center border-b border-border px-4">
+          {/* Left spacer / date navigation */}
+          {activeTimeView === "today" ? (
+            <div className="flex flex-1 items-center justify-center gap-1">
+              <button
+                onClick={() =>
+                  setViewDate((d) => {
+                    const n = new Date(d);
+                    n.setDate(n.getDate() - 1);
+                    return n;
+                  })
+                }
+                className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <ChevronLeft size={13} />
+              </button>
+              <button
+                onClick={() => setViewDate(new Date())}
+                className="min-w-[88px] rounded-md px-2 py-0.5 text-center text-xs font-medium text-foreground transition-colors hover:bg-muted"
+              >
+                {formatViewDate(viewDate)}
+              </button>
+              <button
+                onClick={() =>
+                  setViewDate((d) => {
+                    const n = new Date(d);
+                    n.setDate(n.getDate() + 1);
+                    return n;
+                  })
+                }
+                className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <ChevronRight size={13} />
+              </button>
+            </div>
+          ) : (
+            <div className="flex-1" />
+          )}
           <button
             onClick={() => setShowQuickCreate(true)}
             className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-brand-600"
@@ -291,6 +353,7 @@ export function TasksModule() {
               selectedItemId={selectedItemId}
               onNewTask={() => setShowQuickCreate(true)}
               pendingItem={lastCreatedItem}
+              viewDate={viewDate}
             />
           </div>
         )}
