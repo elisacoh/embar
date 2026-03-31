@@ -15,7 +15,7 @@ export default async function DashboardPage() {
   // Fetch all workspaces the user is a member of
   let { data: workspaces } = await supabase
     .from("workspaces")
-    .select("id, name, type")
+    .select("id, name, type, is_default, is_personal")
     .is("deleted_at", null)
     .order("created_at", { ascending: true });
 
@@ -27,8 +27,14 @@ export default async function DashboardPage() {
     );
     const { data: created } = await admin
       .from("workspaces")
-      .insert({ name: "My Workspace", type: "personal", owner_id: user.id })
-      .select("id, name, type")
+      .insert({
+        name: "My Workspace",
+        type: "personal",
+        owner_id: user.id,
+        is_default: true,
+        is_personal: true,
+      })
+      .select("id, name, type, is_default, is_personal")
       .single();
     if (created) {
       await admin.from("workspace_members").insert({

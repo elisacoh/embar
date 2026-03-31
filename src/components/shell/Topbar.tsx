@@ -1,10 +1,11 @@
 "use client";
 
-import { LogOut } from "lucide-react";
+import { LogOut, Layers } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { WorkspaceSelector } from "./WorkspaceSelector";
+import { useUIStore } from "@/stores/ui";
 import type { WorkspaceData } from "@/lib/types";
 
 interface TopbarProps {
@@ -27,11 +28,18 @@ function getInitials(email: string): string {
 export function Topbar({ userEmail, workspaces, initialActiveWorkspaceId }: TopbarProps) {
   const router = useRouter();
   const initials = getInitials(userEmail);
+  const activeWorkspaceId = useUIStore((s) => s.activeWorkspaceId) || initialActiveWorkspaceId;
+  const showAllWorkspaces = useUIStore((s) => s.showAllWorkspaces);
+  const setShowAllWorkspaces = useUIStore((s) => s.setShowAllWorkspaces);
+
+  const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId);
+  const isDefaultWorkspace = activeWorkspace?.is_default ?? false;
 
   async function handleLogout() {
     const supabase = createClient();
     await supabase.auth.signOut();
     localStorage.removeItem("embar_remember_me");
+    sessionStorage.removeItem("embar_initialized");
     router.push("/login");
     router.refresh();
   }
@@ -45,14 +53,28 @@ export function Topbar({ userEmail, workspaces, initialActiveWorkspaceId }: Topb
         </div>
       </div>
 
-      {/* Center — workspace selector, truly centered in the header */}
-      <div className="pointer-events-none absolute inset-x-0 flex justify-center">
+      {/* Center — workspace selector + all-workspaces toggle */}
+      <div className="pointer-events-none absolute inset-x-0 flex items-center justify-center gap-2">
         <div className="pointer-events-auto">
           <WorkspaceSelector
             initialWorkspaces={workspaces}
             initialActiveId={initialActiveWorkspaceId}
           />
         </div>
+        {isDefaultWorkspace && (
+          <button
+            onClick={() => setShowAllWorkspaces(!showAllWorkspaces)}
+            title={showAllWorkspaces ? "Showing all workspaces" : "Show all workspaces"}
+            className={`pointer-events-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+              showAllWorkspaces
+                ? "bg-brand-500/10 text-brand-600 dark:text-brand-400"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`}
+          >
+            <Layers size={12} />
+            All
+          </button>
+        )}
       </div>
 
       {/* Right — theme toggle + user avatar */}

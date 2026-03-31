@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { ChevronDown, Plus, Check, User, Briefcase, FolderKanban, X } from "lucide-react";
 import { createWorkspace, setLastWorkspace } from "@/app/actions/workspace";
+import { useUIStore } from "@/stores/ui";
 import type { WorkspaceData } from "@/lib/types";
 
 // Deterministic color dot from workspace id
@@ -52,6 +53,8 @@ export function WorkspaceSelector({ initialWorkspaces, initialActiveId }: Worksp
   async function handleSwitch(ws: WorkspaceData) {
     setOpen(false);
     setActiveId(ws.id);
+    useUIStore.getState().setActiveWorkspaceId(ws.id);
+    if (!ws.is_default) useUIStore.getState().setShowAllWorkspaces(false);
     await setLastWorkspace(ws.id);
   }
 
@@ -72,6 +75,7 @@ export function WorkspaceSelector({ initialWorkspaces, initialActiveId }: Worksp
     const newWs = result.workspace;
     setWorkspaces((prev) => [...prev, newWs]);
     setActiveId(newWs.id);
+    useUIStore.getState().setActiveWorkspaceId(newWs.id);
     await setLastWorkspace(newWs.id);
     setShowModal(false);
     setName("");
