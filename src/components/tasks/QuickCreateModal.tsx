@@ -3,16 +3,13 @@
 import { useState, useRef, useEffect } from "react";
 import {
   X,
-  Calendar,
-  Clock,
-  Timer,
-  User,
-  MapPin,
   Plus,
   Trash2,
   ChevronDown,
   ChevronUp,
   ExternalLink,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { createItem } from "@/app/actions/items";
 import { createClient } from "@/lib/supabase/client";
@@ -20,7 +17,7 @@ import { EntityPicker } from "./EntityPicker";
 import { cn } from "@/lib/utils";
 import type { EntityData, ItemData, Subtask } from "@/lib/types";
 
-// ── Duration presets ─────────────────────────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────────
 
 const DURATION_PRESETS = [
   { label: "15m", value: 15 },
@@ -29,8 +26,6 @@ const DURATION_PRESETS = [
   { label: "2h", value: 120 },
   { label: "3h", value: 180 },
 ];
-
-// ── Expanded field options ────────────────────────────────────────────────────
 
 const STATES = [
   { value: "focus", label: "Focus" },
@@ -41,16 +36,32 @@ const STATES = [
 ];
 
 const URGENCIES = [
-  { value: "critical", label: "Critical" },
-  { value: "urgent", label: "Urgent" },
-  { value: "normal", label: "Normal" },
+  { value: "critical", label: "🔴 Critical" },
+  { value: "urgent", label: "🟡 Urgent" },
+  { value: "normal", label: "⚪ Normal" },
 ];
 
 const WORK_TYPES = [
-  { value: "deep", label: "Deep work" },
-  { value: "shallow", label: "Shallow" },
-  { value: "admin", label: "Admin" },
+  { value: "deep", label: "🧠 Deep work" },
+  { value: "shallow", label: "💬 Shallow" },
+  { value: "admin", label: "📋 Admin" },
 ];
+
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+const DAY_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -71,36 +82,173 @@ interface QuickCreateModalProps {
   onOpenDetail: (item: ItemData) => void;
 }
 
-// ── Icon button ───────────────────────────────────────────────────────────────
+// ── Mini calendar ─────────────────────────────────────────────────────────────
 
-function IconBtn({
-  icon: Icon,
+function buildMonthGrid(year: number, month: number): (Date | null)[][] {
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  const mondayStart = (firstDay.getDay() + 6) % 7; // Mon = 0
+  const days: (Date | null)[] = [];
+  for (let i = 0; i < mondayStart; i++) days.push(null);
+  for (let d = 1; d <= lastDay.getDate(); d++) days.push(new Date(year, month, d));
+  while (days.length % 7 !== 0) days.push(null);
+  const weeks: (Date | null)[][] = [];
+  for (let i = 0; i < days.length; i += 7) weeks.push(days.slice(i, i + 7));
+  return weeks;
+}
+
+function toDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function MiniCalendar({
+  value,
+  onChange,
+  onClear,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onClear: () => void;
+}) {
+  const today = new Date();
+  const initDate = value ? new Date(value + "T00:00:00") : today;
+  const [year, setYear] = useState(initDate.getFullYear());
+  const [month, setMonth] = useState(initDate.getMonth());
+
+  const todayStr = toDateStr(today);
+  const weeks = buildMonthGrid(year, month);
+
+  function prevMonth() {
+    if (month === 0) {
+      setMonth(11);
+      setYear((y) => y - 1);
+    } else setMonth((m) => m - 1);
+  }
+  function nextMonth() {
+    if (month === 11) {
+      setMonth(0);
+      setYear((y) => y + 1);
+    } else setMonth((m) => m + 1);
+  }
+
+  return (
+    <div className="select-none">
+      {/* Month nav */}
+      <div className="mb-3 flex items-center justify-between">
+        <button
+          type="button"
+          onClick={prevMonth}
+          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
+          <ChevronLeft size={13} />
+        </button>
+        <span className="text-xs font-semibold text-foreground">
+          {MONTH_NAMES[month]} {year}
+        </span>
+        <button
+          type="button"
+          onClick={nextMonth}
+          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
+          <ChevronRight size={13} />
+        </button>
+      </div>
+
+      {/* Day labels */}
+      <div className="mb-1 grid grid-cols-7 text-center">
+        {DAY_LABELS.map((d) => (
+          <div key={d} className="text-[10px] font-medium text-muted-foreground/50">
+            {d}
+          </div>
+        ))}
+      </div>
+
+      {/* Weeks */}
+      {weeks.map((week, wi) => (
+        <div key={wi} className="grid grid-cols-7 text-center">
+          {week.map((day, di) => {
+            if (!day) return <div key={di} />;
+            const str = toDateStr(day);
+            const isSelected = str === value;
+            const isToday = str === todayStr;
+            return (
+              <button
+                key={di}
+                type="button"
+                onClick={() => onChange(str)}
+                className={cn(
+                  "mx-auto my-0.5 flex h-7 w-7 items-center justify-center rounded-full text-xs transition-colors",
+                  isSelected
+                    ? "bg-brand-500 font-semibold text-white"
+                    : isToday
+                      ? "font-medium text-brand-600 ring-1 ring-brand-500 hover:bg-brand-500/10"
+                      : "text-foreground hover:bg-muted"
+                )}
+              >
+                {day.getDate()}
+              </button>
+            );
+          })}
+        </div>
+      ))}
+
+      {value && (
+        <button
+          type="button"
+          onClick={onClear}
+          className="mt-2 w-full text-center text-[11px] text-muted-foreground hover:text-foreground"
+        >
+          Clear date
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Property chip ─────────────────────────────────────────────────────────────
+
+function PropChip({
+  emoji,
+  label,
   active,
   disabled,
   onClick,
-  title,
+  onClear,
 }: {
-  icon: React.ElementType;
+  emoji: string;
+  label: string;
   active: boolean;
   disabled?: boolean;
   onClick: () => void;
-  title: string;
+  onClear?: () => void;
 }) {
   return (
     <button
       type="button"
-      title={title}
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "flex h-7 w-7 items-center justify-center rounded-lg transition-colors",
+        "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition-all",
         active
-          ? "bg-brand-500/10 text-brand-600 dark:text-brand-400"
-          : "text-muted-foreground hover:bg-muted hover:text-foreground",
+          ? "bg-brand-500/8 border-brand-500/30 text-foreground"
+          : "border-border text-muted-foreground hover:border-border/80 hover:bg-muted/60 hover:text-foreground",
         disabled && "cursor-not-allowed opacity-30"
       )}
     >
-      <Icon size={14} />
+      <span>{emoji}</span>
+      <span>{label}</span>
+      {active && onClear && (
+        <span
+          role="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onClear();
+          }}
+          className="ml-0.5 rounded-full p-0.5 text-muted-foreground hover:text-foreground"
+        >
+          <X size={9} />
+        </span>
+      )}
     </button>
   );
 }
@@ -119,14 +267,16 @@ export function QuickCreateModal({
   const [title, setTitle] = useState("");
   const [entityId, setEntityId] = useState<string | null>(defaultEntityId);
 
-  // Expandable inline sections
+  // Description
   const [description, setDescription] = useState("");
   const [showDescription, setShowDescription] = useState(false);
+
+  // Subtasks
   const [subtasks, setSubtasks] = useState<Subtask[]>([]);
   const [newSubtaskText, setNewSubtaskText] = useState("");
-  const [showSubtasks, setShowSubtasks] = useState(false);
+  const [showSubtaskInput, setShowSubtaskInput] = useState(false);
 
-  // Pickers
+  // Property pickers
   const [activePicker, setActivePicker] = useState<ActivePicker>(null);
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
@@ -135,19 +285,19 @@ export function QuickCreateModal({
   const [contactSearch, setContactSearch] = useState("");
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [location, setLocation] = useState("");
-
-  // Task/Event
   const [isFixed, setIsFixed] = useState(false);
 
-  // Expanded fields
+  // Always-visible fields
+  const [hardDeadline, setHardDeadline] = useState(false);
+
+  // Expanded section
   const [expanded, setExpanded] = useState(false);
   const [state, setState] = useState("unplanned");
   const [urgency, setUrgency] = useState("normal");
   const [workType, setWorkType] = useState<string | null>(null);
   const [dueDate, setDueDate] = useState("");
-  const [hardDeadline, setHardDeadline] = useState(false);
 
-  // Submit state
+  // Submit
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -155,36 +305,23 @@ export function QuickCreateModal({
   const descRef = useRef<HTMLTextAreaElement>(null);
   const subtaskRef = useRef<HTMLInputElement>(null);
 
-  // Autofocus title
   useEffect(() => {
     titleRef.current?.focus();
   }, []);
-
-  // When time is cleared, unset isFixed
   useEffect(() => {
     if (!time) setIsFixed(false);
   }, [time]);
-
-  // Auto-set state based on date: unplanned ↔ planned
   useEffect(() => {
-    if (date) {
-      setState((prev) => (prev === "unplanned" ? "planned" : prev));
-    } else {
-      setState((prev) => (prev === "planned" ? "unplanned" : prev));
-    }
+    if (date) setState((prev) => (prev === "unplanned" ? "planned" : prev));
+    else setState((prev) => (prev === "planned" ? "unplanned" : prev));
   }, [date]);
-
-  // Auto-focus description when expanded
   useEffect(() => {
     if (showDescription) setTimeout(() => descRef.current?.focus(), 0);
   }, [showDescription]);
-
-  // Auto-focus subtask input when expanded
   useEffect(() => {
-    if (showSubtasks) setTimeout(() => subtaskRef.current?.focus(), 0);
-  }, [showSubtasks]);
+    if (showSubtaskInput) setTimeout(() => subtaskRef.current?.focus(), 0);
+  }, [showSubtaskInput]);
 
-  // Fetch contacts when contact picker opens
   useEffect(() => {
     if (activePicker !== "contact") return;
     const supabase = createClient();
@@ -201,7 +338,7 @@ export function QuickCreateModal({
     setActivePicker((prev) => (prev === picker ? null : picker));
   }
 
-  // ── Subtask helpers ─────────────────────────────────────────────────────────
+  // ── Subtasks ────────────────────────────────────────────────────────────────
 
   function addSubtask() {
     if (!newSubtaskText.trim()) return;
@@ -249,8 +386,6 @@ export function QuickCreateModal({
     else onCreated(result.item);
   }
 
-  // ── Keyboard ────────────────────────────────────────────────────────────────
-
   function handleTitleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Escape") {
       e.stopPropagation();
@@ -262,7 +397,7 @@ export function QuickCreateModal({
     }
   }
 
-  // ── Derived ─────────────────────────────────────────────────────────────────
+  // ── Derived ──────────────────────────────────────────────────────────────────
 
   const selectedContact = contacts.find((c) => c.id === contactId) ?? null;
   const filteredContacts = contacts.filter(
@@ -279,33 +414,57 @@ export function QuickCreateModal({
     return m ? `${h}h${m}m` : `${h}h`;
   }
 
+  function formatDateLabel(d: string) {
+    const dt = new Date(d + "T00:00:00");
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+    if (d === toDateStr(today)) return "Today";
+    if (d === toDateStr(tomorrow)) return "Tomorrow";
+    return dt.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+
+  function formatTimeLabel(t: string) {
+    const [h, m] = t.split(":").map(Number);
+    const hr = (h ?? 0) % 12 === 0 ? 12 : (h ?? 0) % 12;
+    return `${hr}:${String(m ?? 0).padStart(2, "0")} ${(h ?? 0) < 12 ? "am" : "pm"}`;
+  }
+
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
 
-      <div className="relative w-full max-w-lg rounded-2xl border border-border bg-background shadow-2xl">
-        <button
-          onClick={onClose}
-          className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
-        >
-          <X size={14} />
-        </button>
+      <div className="relative w-full max-w-xl overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
+        {/* ── Header ──────────────────────────────────────────────────────── */}
+        <div className="flex items-center justify-between border-b border-border/60 px-6 py-4">
+          <span className="text-sm font-semibold text-foreground">New Task</span>
+          <div className="flex items-center gap-2">
+            <EntityPicker entities={entities} value={entityId} onChange={setEntityId} />
+            <button
+              onClick={onClose}
+              className="flex h-6 w-6 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <X size={13} />
+            </button>
+          </div>
+        </div>
 
-        <div className="p-5">
-          {/* ── Title ─────────────────────────────────────────────────────── */}
+        {/* ── Body ────────────────────────────────────────────────────────── */}
+        <div className="px-6 py-5">
+          {/* Title */}
           <input
             ref={titleRef}
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             onKeyDown={handleTitleKeyDown}
-            placeholder="What needs to be done?"
-            className="mb-3 w-full bg-transparent text-base font-medium text-foreground outline-none placeholder:font-normal placeholder:text-muted-foreground/50"
+            placeholder="Task title"
+            className="mb-4 w-full bg-transparent text-xl font-semibold text-foreground outline-none placeholder:font-normal placeholder:text-muted-foreground/30"
           />
 
-          {/* ── Inline expandable: description ─────────────────────────── */}
+          {/* Description */}
           {showDescription ? (
             <textarea
               ref={descRef}
@@ -316,162 +475,163 @@ export function QuickCreateModal({
               }}
               placeholder="Add a description…"
               rows={3}
-              className="mb-2 w-full resize-none rounded-lg bg-muted/50 px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground/40 focus:bg-muted"
+              className="mb-4 w-full resize-none rounded-xl bg-muted/40 px-4 py-3 text-sm text-foreground outline-none placeholder:text-muted-foreground/40 focus:bg-muted/60"
             />
           ) : (
             <button
               type="button"
               onClick={() => setShowDescription(true)}
-              className="mb-1 flex items-center gap-1.5 text-xs text-muted-foreground/60 hover:text-muted-foreground"
+              className="mb-4 flex items-center gap-2 text-sm text-muted-foreground/50 transition-colors hover:text-muted-foreground"
             >
-              <span className="text-[10px]">↳</span> Add description
+              <span className="text-base leading-none">📝</span>
+              <span>Add description</span>
             </button>
           )}
 
-          {/* ── Inline expandable: subtasks ─────────────────────────────── */}
-          {showSubtasks ? (
-            <div className="mb-3">
+          {/* Subtask list */}
+          {subtasks.length > 0 && (
+            <div className="mb-3 space-y-1">
               {subtasks.map((s) => (
-                <div key={s.id} className="flex items-center gap-2 py-1">
-                  <div className="h-3.5 w-3.5 flex-none rounded-full border-2 border-muted-foreground/30" />
+                <div key={s.id} className="group flex items-center gap-2.5 rounded-lg px-1 py-1">
+                  <div className="h-4 w-4 flex-none rounded-full border-2 border-muted-foreground/25" />
                   <span className="flex-1 text-sm text-foreground">{s.title}</span>
                   <button
                     onClick={() => setSubtasks((prev) => prev.filter((x) => x.id !== s.id))}
-                    className="text-muted-foreground/30 hover:text-destructive"
+                    className="text-muted-foreground/20 opacity-0 transition-all hover:text-destructive group-hover:opacity-100"
                   >
-                    <Trash2 size={11} />
+                    <Trash2 size={12} />
                   </button>
                 </div>
               ))}
-              <div className="flex items-center gap-2 py-1">
-                <Plus size={12} className="flex-none text-muted-foreground" />
-                <input
-                  ref={subtaskRef}
-                  type="text"
-                  value={newSubtaskText}
-                  onChange={(e) => setNewSubtaskText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      addSubtask();
-                    }
-                    if (e.key === "Escape") setShowSubtasks(false);
-                  }}
-                  placeholder="Add subtask…"
-                  className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/40"
-                />
-              </div>
+            </div>
+          )}
+
+          {/* Add subtask */}
+          {showSubtaskInput ? (
+            <div className="mb-4 flex items-center gap-2.5 rounded-xl bg-muted/40 px-4 py-2.5">
+              <Plus size={13} className="flex-none text-muted-foreground/50" />
+              <input
+                ref={subtaskRef}
+                type="text"
+                value={newSubtaskText}
+                onChange={(e) => setNewSubtaskText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addSubtask();
+                  }
+                  if (e.key === "Escape") setShowSubtaskInput(false);
+                }}
+                placeholder="Add subtask…"
+                className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/40"
+              />
             </div>
           ) : (
             <button
               type="button"
-              onClick={() => setShowSubtasks(true)}
-              className="mb-3 flex items-center gap-1.5 text-xs text-muted-foreground/60 hover:text-muted-foreground"
+              onClick={() => setShowSubtaskInput(true)}
+              className="mb-4 flex items-center gap-2 text-sm text-muted-foreground/50 transition-colors hover:text-muted-foreground"
             >
-              <span className="text-[10px]">↳</span> Add subtask
+              <span className="text-base leading-none">＋</span>
+              <span>Add subtask</span>
             </button>
           )}
+        </div>
 
-          {/* ── Entity picker ─────────────────────────────────────────────── */}
-          <div className="mb-4">
-            <EntityPicker entities={entities} value={entityId} onChange={setEntityId} />
-          </div>
-
-          {/* ── Icon row + active inline picker ─────────────────────────── */}
-          <div className="mb-1 flex items-center gap-1">
-            <IconBtn
-              icon={Calendar}
+        {/* ── Properties ──────────────────────────────────────────────────── */}
+        <div className="border-t border-border/60 px-6 py-4">
+          {/* Chip row */}
+          <div className="flex flex-wrap gap-2">
+            <PropChip
+              emoji="📅"
+              label={date ? formatDateLabel(date) : "Schedule"}
               active={!!date}
-              title="Schedule date"
               onClick={() => togglePicker("date")}
+              onClear={() => {
+                setDate("");
+                setTime("");
+                setActivePicker(null);
+              }}
             />
-            <IconBtn
-              icon={Clock}
+            <PropChip
+              emoji="⏰"
+              label={time ? formatTimeLabel(time) : "Time"}
               active={!!time}
               disabled={!date}
-              title={date ? "Schedule time" : "Set a date first"}
               onClick={() => togglePicker("time")}
+              onClear={() => {
+                setTime("");
+                setActivePicker(null);
+              }}
             />
-            <IconBtn
-              icon={Timer}
+            <PropChip
+              emoji="⏱"
+              label={duration ? formatDuration(duration) : "Duration"}
               active={!!duration}
-              title="Duration"
               onClick={() => togglePicker("duration")}
+              onClear={() => {
+                setDuration(null);
+                setActivePicker(null);
+              }}
             />
-            <IconBtn
-              icon={User}
+            <PropChip
+              emoji="👤"
+              label={selectedContact ? selectedContact.name : "Waiting for"}
               active={!!contactId}
-              title="Waiting for contact"
               onClick={() => togglePicker("contact")}
+              onClear={() => {
+                setContactId(null);
+                setActivePicker(null);
+              }}
             />
-            <IconBtn
-              icon={MapPin}
+            <PropChip
+              emoji="📍"
+              label={location || "Location"}
               active={!!location}
-              title="Location"
               onClick={() => togglePicker("location")}
+              onClear={() => {
+                setLocation("");
+                setActivePicker(null);
+              }}
             />
           </div>
 
-          {/* Active picker */}
+          {/* Active pickers */}
           {activePicker === "date" && (
-            <div className="mb-3 rounded-xl border border-border bg-muted/40 p-3">
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Date
-              </p>
-              <input
-                type="date"
+            <div className="mt-3 rounded-xl border border-border bg-muted/30 p-4">
+              <MiniCalendar
                 value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-brand-400"
-                autoFocus
+                onChange={(v) => {
+                  setDate(v);
+                  setActivePicker(null);
+                }}
+                onClear={() => {
+                  setDate("");
+                  setTime("");
+                  setActivePicker(null);
+                }}
               />
-              {date && (
-                <button
-                  onClick={() => {
-                    setDate("");
-                    setTime("");
-                    setActivePicker(null);
-                  }}
-                  className="mt-2 text-xs text-muted-foreground hover:text-foreground"
-                >
-                  Clear
-                </button>
-              )}
             </div>
           )}
 
           {activePicker === "time" && (
-            <div className="mb-3 rounded-xl border border-border bg-muted/40 p-3">
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Time
-              </p>
+            <div className="mt-3 rounded-xl border border-border bg-muted/30 p-3">
               <input
                 type="time"
                 value={time}
-                onChange={(e) => setTime(e.target.value)}
+                onChange={(e) => {
+                  setTime(e.target.value);
+                  if (e.target.value) setActivePicker(null);
+                }}
                 className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-brand-400"
                 autoFocus
               />
-              {time && (
-                <button
-                  onClick={() => {
-                    setTime("");
-                    setActivePicker(null);
-                  }}
-                  className="mt-2 text-xs text-muted-foreground hover:text-foreground"
-                >
-                  Clear
-                </button>
-              )}
             </div>
           )}
 
           {activePicker === "duration" && (
-            <div className="mb-3 rounded-xl border border-border bg-muted/40 p-3">
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Duration
-              </p>
-              <div className="flex flex-wrap gap-1.5">
+            <div className="mt-3 rounded-xl border border-border bg-muted/30 p-3">
+              <div className="flex flex-wrap gap-2">
                 {DURATION_PRESETS.map((p) => (
                   <button
                     key={p.value}
@@ -481,7 +641,7 @@ export function QuickCreateModal({
                       setActivePicker(null);
                     }}
                     className={cn(
-                      "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                      "rounded-full px-4 py-1.5 text-xs font-medium transition-colors",
                       duration === p.value
                         ? "bg-brand-500 text-white"
                         : "border border-border bg-background text-muted-foreground hover:text-foreground"
@@ -496,17 +656,14 @@ export function QuickCreateModal({
                   value={duration ?? ""}
                   onChange={(e) => setDuration(e.target.value ? Number(e.target.value) : null)}
                   placeholder="custom min"
-                  className="w-24 rounded-lg border border-input bg-background px-3 py-1.5 text-xs outline-none focus:border-brand-400"
+                  className="w-28 rounded-full border border-input bg-background px-4 py-1.5 text-xs outline-none focus:border-brand-400"
                 />
               </div>
             </div>
           )}
 
           {activePicker === "contact" && (
-            <div className="mb-3 rounded-xl border border-border bg-muted/40 p-3">
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Waiting for
-              </p>
+            <div className="mt-3 rounded-xl border border-border bg-muted/30 p-3">
               <input
                 type="text"
                 value={contactSearch}
@@ -544,10 +701,7 @@ export function QuickCreateModal({
           )}
 
           {activePicker === "location" && (
-            <div className="mb-3 rounded-xl border border-border bg-muted/40 p-3">
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Location
-              </p>
+            <div className="mt-3 rounded-xl border border-border bg-muted/30 p-3">
               <input
                 type="text"
                 value={location}
@@ -562,41 +716,15 @@ export function QuickCreateModal({
             </div>
           )}
 
-          {/* ── Active meta badges row ────────────────────────────────── */}
-          {(date || time || duration || contactId || location) && (
-            <div className="mb-3 flex flex-wrap gap-1.5">
-              {date && (
-                <Badge
-                  label={new Date(date + "T00:00:00").toLocaleDateString(undefined, {
-                    month: "short",
-                    day: "numeric",
-                  })}
-                  onClear={() => {
-                    setDate("");
-                    setTime("");
-                  }}
-                />
-              )}
-              {time && <Badge label={time} onClear={() => setTime("")} />}
-              {duration && (
-                <Badge label={formatDuration(duration)} onClear={() => setDuration(null)} />
-              )}
-              {selectedContact && (
-                <Badge label={selectedContact.name} onClear={() => setContactId(null)} />
-              )}
-              {location && <Badge label={location} onClear={() => setLocation("")} />}
-            </div>
-          )}
-
-          {/* ── Task / Event toggle when date + time ─────────────────── */}
+          {/* Task / Event toggle */}
           {date && time && (
-            <div className="mb-3 flex items-center gap-2 rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            <div className="mt-3 flex items-center gap-2 rounded-xl bg-muted/40 px-4 py-2.5 text-xs text-muted-foreground">
               <span>Looks like an event</span>
               <button
                 type="button"
                 onClick={() => setIsFixed((f) => !f)}
                 className={cn(
-                  "ml-auto flex items-center gap-2 rounded-full px-2.5 py-1 font-medium transition-colors",
+                  "ml-auto rounded-full px-3 py-1 font-medium transition-colors",
                   isFixed ? "bg-brand-500 text-white" : "bg-muted text-muted-foreground"
                 )}
               >
@@ -605,26 +733,58 @@ export function QuickCreateModal({
             </div>
           )}
 
-          {/* ── Expanded fields ───────────────────────────────────────── */}
+          {/* Hard deadline — always visible */}
+          <button
+            type="button"
+            onClick={() => setHardDeadline((h) => !h)}
+            className={cn(
+              "mt-3 flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-sm transition-colors",
+              hardDeadline
+                ? "bg-destructive/8 text-destructive"
+                : "text-muted-foreground/60 hover:bg-muted/40 hover:text-muted-foreground"
+            )}
+          >
+            <span className="text-base leading-none">{hardDeadline ? "🔒" : "🔓"}</span>
+            <span className="flex-1 text-left text-xs">
+              {hardDeadline ? "Hard deadline — AI won't reschedule" : "Hard deadline"}
+            </span>
+            <span
+              className={cn(
+                "font-mono text-xs",
+                hardDeadline ? "text-destructive" : "text-muted-foreground/30"
+              )}
+            >
+              {hardDeadline ? "ON" : "OFF"}
+            </span>
+          </button>
+
+          {/* Expanded fields */}
           {expanded && (
-            <div className="mb-4 space-y-3 rounded-xl border border-border bg-muted/20 p-3">
-              <InlineSelect label="State" options={STATES} value={state} onChange={setState} />
+            <div className="mt-3 space-y-2 rounded-xl border border-border bg-muted/20 p-4">
+              <InlineSelect
+                label="State"
+                emoji="🎯"
+                options={STATES}
+                value={state}
+                onChange={setState}
+              />
               <InlineSelect
                 label="Urgency"
+                emoji="⚡"
                 options={URGENCIES}
                 value={urgency}
                 onChange={setUrgency}
               />
               <InlineSelect
                 label="Work type"
+                emoji="🧩"
                 options={WORK_TYPES}
                 value={workType ?? ""}
                 onChange={(v) => setWorkType(v || null)}
               />
-              <div className="flex items-start gap-3">
-                <span className="w-20 flex-none pt-1.5 text-xs text-muted-foreground">
-                  Due date
-                </span>
+              <div className="flex items-center gap-3">
+                <span className="text-sm">📆</span>
+                <span className="w-20 flex-none text-xs text-muted-foreground">Due date</span>
                 <input
                   type="date"
                   value={dueDate}
@@ -632,62 +792,41 @@ export function QuickCreateModal({
                   className="flex-1 rounded-lg border border-input bg-background px-2.5 py-1.5 text-xs outline-none focus:border-brand-400"
                 />
               </div>
-              <div className="flex items-center gap-3">
-                <span className="w-20 flex-none text-xs text-muted-foreground">Hard deadline</span>
-                <button
-                  type="button"
-                  onClick={() => setHardDeadline((h) => !h)}
-                  className={cn(
-                    "relative h-5 w-9 rounded-full transition-colors",
-                    hardDeadline ? "bg-destructive" : "bg-muted"
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform",
-                      hardDeadline ? "left-4" : "left-0.5"
-                    )}
-                  />
-                </button>
-                {hardDeadline && (
-                  <span className="text-xs text-destructive">AI won&apos;t reschedule</span>
-                )}
-              </div>
             </div>
           )}
+        </div>
 
-          {error && <p className="mb-3 text-xs text-destructive">{error}</p>}
+        {/* ── Footer ──────────────────────────────────────────────────────── */}
+        <div className="flex items-center justify-between border-t border-border/60 px-6 py-4">
+          <button
+            type="button"
+            onClick={() => setExpanded((e) => !e)}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground/60 transition-colors hover:text-muted-foreground"
+          >
+            {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            {expanded ? "Fewer options" : "More options"}
+          </button>
 
-          {/* ── Footer ───────────────────────────────────────────────── */}
-          <div className="flex items-center justify-between">
+          {error && <p className="text-xs text-destructive">{error}</p>}
+
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setExpanded((e) => !e)}
-              className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              onClick={() => void submit(true)}
+              disabled={!title.trim() || loading}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground/60 transition-colors hover:text-foreground disabled:opacity-30"
             >
-              {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-              {expanded ? "Fewer options" : "See all options"}
+              <ExternalLink size={11} />
+              Open detail
             </button>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void submit(true)}
-                disabled={!title.trim() || loading}
-                className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
-              >
-                <ExternalLink size={11} />
-                Open full detail
-              </button>
-              <button
-                type="button"
-                onClick={() => void submit(false)}
-                disabled={!title.trim() || loading}
-                className="rounded-lg bg-foreground px-4 py-1.5 text-sm font-semibold text-background transition-opacity hover:opacity-80 disabled:opacity-40"
-              >
-                {loading ? "Creating…" : "Create ↵"}
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => void submit(false)}
+              disabled={!title.trim() || loading}
+              className="rounded-xl bg-foreground px-5 py-2 text-sm font-semibold text-background transition-opacity hover:opacity-80 disabled:opacity-30"
+            >
+              {loading ? "Creating…" : "Create"}
+            </button>
           </div>
         </div>
       </div>
@@ -695,32 +834,24 @@ export function QuickCreateModal({
   );
 }
 
-// ── Small helpers ─────────────────────────────────────────────────────────────
-
-function Badge({ label, onClear }: { label: string; onClear: () => void }) {
-  return (
-    <span className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs text-foreground">
-      {label}
-      <button onClick={onClear} className="text-muted-foreground hover:text-foreground">
-        <X size={10} />
-      </button>
-    </span>
-  );
-}
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function InlineSelect({
   label,
+  emoji,
   options,
   value,
   onChange,
 }: {
   label: string;
+  emoji: string;
   options: { value: string; label: string }[];
   value: string;
   onChange: (v: string) => void;
 }) {
   return (
     <div className="flex items-center gap-3">
+      <span className="text-sm">{emoji}</span>
       <span className="w-20 flex-none text-xs text-muted-foreground">{label}</span>
       <select
         value={value}
