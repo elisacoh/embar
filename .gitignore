@@ -34,4 +34,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# IDE
 .idea
+
+# AI coding context (internal)
+CLAUDE.md
