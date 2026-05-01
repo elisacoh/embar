@@ -39,7 +39,6 @@ The app shell includes a persistent AI Bar (visual, wired up in Sprint 10), icon
 Logical microservices from day one. The Next.js app handles all user-facing logic and database writes. A separate FastAPI service (`embar-ai`) handles AI inference — it proposes, the Next.js app executes. Services communicate via HTTP only; no cross-service DB access.
 
 **Key data model decisions:**
-
 - `workspace_id` on every table — RLS enforces user isolation at the DB level
 - `metadata JSONB` on every table — module extensions write here, core schema never changes
 - `deleted_at TIMESTAMP` everywhere — soft deletes only
