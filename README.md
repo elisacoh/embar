@@ -8,12 +8,12 @@ A personal OS for complex work. Embar unifies tasks, documents, and email into o
 
 ## What's built
 
-| Sprint | Feature | Status |
-|--------|---------|--------|
-| S1 | Auth (email + Google OAuth), workspace creation, app shell | ✅ Done |
-| S2 | Entity (project/client) creation and management | ✅ Done |
-| S3 | Core task CRUD — create, edit, delete, subtasks | ✅ Done |
-| S4 | Today / Week / Month / All views, task states, timer | ✅ Done |
+| Sprint | Feature                                                    | Status  |
+| ------ | ---------------------------------------------------------- | ------- |
+| S1     | Auth (email + Google OAuth), workspace creation, app shell | ✅ Done |
+| S2     | Entity (project/client) creation and management            | ✅ Done |
+| S3     | Core task CRUD — create, edit, delete, subtasks            | ✅ Done |
+| S4     | Today / Week / Month / All views, task states, timer       | ✅ Done |
 
 The app shell includes a persistent AI Bar (visual, wired up in Sprint 10), icon-only sidebar, workspace switcher, and dark/light theme.
 
@@ -21,16 +21,16 @@ The app shell includes a persistent AI Bar (visual, wired up in Sprint 10), icon
 
 ## Tech stack
 
-| Layer | Technology |
-|-------|-----------|
-| Frontend | Next.js 14 App Router + TypeScript strict |
-| Styling | Tailwind CSS + shadcn/ui |
-| State | Zustand (UI) + server components (data) |
-| Database | Supabase / PostgreSQL + pgvector |
-| Auth | Supabase Auth — email + Google OAuth |
+| Layer        | Technology                                           |
+| ------------ | ---------------------------------------------------- |
+| Frontend     | Next.js 14 App Router + TypeScript strict            |
+| Styling      | Tailwind CSS + shadcn/ui                             |
+| State        | Zustand (UI) + server components (data)              |
+| Database     | Supabase / PostgreSQL + pgvector                     |
+| Auth         | Supabase Auth — email + Google OAuth                 |
 | AI inference | Claude claude-sonnet-4-6 (Anthropic SDK) — Sprint 10 |
-| Embeddings | OpenAI text-embedding-3-small — Sprint 9 |
-| Hosting | Vercel (Next.js) + Railway (FastAPI AI service) |
+| Embeddings   | OpenAI text-embedding-3-small — Sprint 9             |
+| Hosting      | Vercel (Next.js) + Railway (FastAPI AI service)      |
 
 ---
 

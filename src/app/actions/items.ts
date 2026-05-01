@@ -111,6 +111,7 @@ export async function updateItem(
     waiting_for: string | null;
     subtasks: Subtask[];
     metadata: Record<string, unknown> | null;
+    time_spent_ms: number;
   }>
 ): Promise<{ ok: true } | { error: string }> {
   const supabase = await createClient();

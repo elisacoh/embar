@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { EntityData } from "@/lib/types";
@@ -13,13 +13,21 @@ interface EntityPickerProps {
 
 export function EntityPicker({ entities, value, onChange }: EntityPickerProps) {
   const [open, setOpen] = useState(false);
+  const [rect, setRect] = useState<DOMRect | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
   const selected = entities.find((e) => e.id === value) ?? null;
+
+  function handleOpen() {
+    if (!open) setRect(btnRef.current?.getBoundingClientRect() ?? null);
+    setOpen((o) => !o);
+  }
 
   return (
     <div className="relative">
       <button
+        ref={btnRef}
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={handleOpen}
         className={cn(
           "flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
           selected
@@ -41,10 +49,13 @@ export function EntityPicker({ entities, value, onChange }: EntityPickerProps) {
         <ChevronDown size={11} className="text-muted-foreground" />
       </button>
 
-      {open && (
+      {open && rect && (
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full z-20 mt-1 min-w-[180px] overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-lg">
+          <div className="fixed inset-0 z-[60]" onClick={() => setOpen(false)} />
+          <div
+            className="fixed z-[61] min-w-[180px] overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-lg"
+            style={{ top: rect.bottom + 4, right: window.innerWidth - rect.right }}
+          >
             <button
               onClick={() => {
                 onChange(null);
