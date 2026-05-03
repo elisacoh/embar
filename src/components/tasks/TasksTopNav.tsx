@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Plus, Pencil, Palette, Archive, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { EntityData } from "@/lib/types";
+import type { EntityData, SessionData } from "@/lib/types";
 
 export type TimeView = "today" | "week" | "month" | "all";
 
@@ -40,6 +40,8 @@ interface TasksTopNavProps {
   onArchive: (id: string) => void;
   onDeleteRequest: (entity: EntityData) => void;
   onReorder: (orderedIds: string[]) => void;
+  activeSession?: SessionData | null;
+  onSessionExit?: () => void;
 }
 
 function NavPill({
@@ -291,6 +293,8 @@ export function TasksTopNav({
   onArchive,
   onDeleteRequest,
   onReorder,
+  activeSession,
+  onSessionExit,
 }: TasksTopNavProps) {
   const [dragSrc, setDragSrc] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
@@ -315,62 +319,77 @@ export function TasksTopNav({
       role="navigation"
       aria-label="Tasks navigation"
     >
-      {/* Left — time views (flex-none so it never shrinks) */}
-      <div className="flex flex-none items-center gap-0.5" role="group" aria-label="Time view">
-        {TIME_VIEWS.map((v) => (
-          <NavPill
-            key={v.id}
-            active={activeTimeView === v.id}
-            onClick={() => onTimeViewChange(v.id)}
-          >
-            {v.label}
-          </NavPill>
-        ))}
-      </div>
+      {/* Left — time views (hidden in session mode) */}
+      {!activeSession && (
+        <div className="flex flex-none items-center gap-0.5" role="group" aria-label="Time view">
+          {TIME_VIEWS.map((v) => (
+            <NavPill
+              key={v.id}
+              active={activeTimeView === v.id}
+              onClick={() => onTimeViewChange(v.id)}
+            >
+              {v.label}
+            </NavPill>
+          ))}
+        </div>
+      )}
 
-      <Divider />
+      {!activeSession && <Divider />}
 
-      {/* Center — entity contexts (scrollable, flex-1 so it takes remaining space) */}
+      {/* Center — entity contexts or session context */}
       <div
         className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         role="group"
         aria-label="Entity context"
       >
-        <NavPill active={activeEntityId === null} onClick={() => onEntityChange(null)}>
-          All
-        </NavPill>
+        {activeSession ? (
+          // Session mode: "All" exits session, session name shows context
+          <>
+            <NavPill active={false} onClick={() => onSessionExit?.()}>
+              All
+            </NavPill>
+            <NavPill active={true}>{activeSession.title}</NavPill>
+          </>
+        ) : (
+          // Normal mode: entity pills
+          <>
+            <NavPill active={activeEntityId === null} onClick={() => onEntityChange(null)}>
+              All
+            </NavPill>
 
-        {entities.map((entity, i) => (
-          <EntityPill
-            key={entity.id}
-            entity={entity}
-            active={activeEntityId === entity.id}
-            onSelect={() => onEntityChange(entity.id)}
-            onRename={(name) => onRename(entity.id, name)}
-            onRecolor={(color) => onRecolor(entity.id, color)}
-            onArchive={() => onArchive(entity.id)}
-            onDeleteRequest={() => onDeleteRequest(entity)}
-            dragOver={dragOver === i}
-            onDragStart={() => setDragSrc(i)}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragOver(i);
-            }}
-            onDragEnd={() => {
-              setDragSrc(null);
-              setDragOver(null);
-            }}
-            onDrop={() => handleDrop(i)}
-          />
-        ))}
+            {entities.map((entity, i) => (
+              <EntityPill
+                key={entity.id}
+                entity={entity}
+                active={activeEntityId === entity.id}
+                onSelect={() => onEntityChange(entity.id)}
+                onRename={(name) => onRename(entity.id, name)}
+                onRecolor={(color) => onRecolor(entity.id, color)}
+                onArchive={() => onArchive(entity.id)}
+                onDeleteRequest={() => onDeleteRequest(entity)}
+                dragOver={dragOver === i}
+                onDragStart={() => setDragSrc(i)}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragOver(i);
+                }}
+                onDragEnd={() => {
+                  setDragSrc(null);
+                  setDragOver(null);
+                }}
+                onDrop={() => handleDrop(i)}
+              />
+            ))}
 
-        <button
-          onClick={onAddEntity}
-          aria-label="Add entity"
-          className="ml-0.5 flex h-5 w-5 flex-none items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-        >
-          <Plus size={11} />
-        </button>
+            <button
+              onClick={onAddEntity}
+              aria-label="Add entity"
+              className="ml-0.5 flex h-5 w-5 flex-none items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <Plus size={11} />
+            </button>
+          </>
+        )}
       </div>
 
       <Divider />

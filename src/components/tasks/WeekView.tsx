@@ -3,10 +3,10 @@
 import { useState, useEffect, useRef } from "react";
 import { ChevronLeft, ChevronRight, Undo2, ArrowRight, CalendarDays } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { normalizeItem } from "@/lib/normalize";
+import { normalizeItem, normalizeSession } from "@/lib/normalize";
 import { updateItem } from "@/app/actions/items";
 import { cn } from "@/lib/utils";
-import type { EntityData, ItemData } from "@/lib/types";
+import type { EntityData, ItemData, SessionData } from "@/lib/types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -142,6 +142,56 @@ function WeekCard({
           Later
         </button>
       </div>
+    </div>
+  );
+}
+
+// ── Week session chip ────────────────────────────────────────────────────────
+
+interface WeekSessionChipProps {
+  session: SessionData;
+  isSelected: boolean;
+  onSelect: () => void;
+}
+
+function WeekSessionChip({ session, isSelected, onSelect }: WeekSessionChipProps) {
+  const dotColor =
+    session.status === "active"
+      ? "bg-green-500"
+      : session.status === "completed"
+        ? "bg-muted-foreground/30"
+        : "bg-brand-500";
+
+  return (
+    <div
+      onClick={onSelect}
+      className={cn(
+        "group mb-1 cursor-pointer select-none rounded-lg border border-brand-500/25 bg-brand-500/5 px-2 py-1.5 shadow-sm transition-all",
+        "hover:border-brand-500/50 hover:bg-brand-500/10",
+        session.status === "completed" && "opacity-50",
+        isSelected && "border-brand-500/60 ring-1 ring-brand-500"
+      )}
+    >
+      <div className="flex items-start gap-1.5">
+        <span className={cn("mt-[3px] h-1.5 w-1.5 flex-none rounded-full", dotColor)} />
+        <span className="min-w-0 flex-1 truncate text-[11px] font-medium leading-snug text-brand-700 dark:text-brand-300">
+          {session.title}
+        </span>
+      </div>
+      {(session.scheduled_time || session.duration_estimate != null) && (
+        <div className="mt-1 flex items-center gap-1.5 pl-3">
+          {session.scheduled_time && (
+            <span className="text-[10px] tabular-nums text-muted-foreground">
+              {formatTime(session.scheduled_time)}
+            </span>
+          )}
+          {session.duration_estimate != null && (
+            <span className="text-[10px] text-muted-foreground/50">
+              {formatDuration(session.duration_estimate)}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -284,6 +334,8 @@ interface WeekViewProps {
   entities: EntityData[];
   onSelectItem: (id: string) => void;
   selectedItemId: string | null;
+  onSelectSession?: (session: SessionData) => void;
+  selectedSessionId?: string | null;
 }
 
 interface UndoState {
@@ -300,9 +352,12 @@ export function WeekView({
   entities,
   onSelectItem,
   selectedItemId,
+  onSelectSession,
+  selectedSessionId,
 }: WeekViewProps) {
   const [anchor, setAnchor] = useState(() => new Date());
   const [items, setItems] = useState<ItemData[]>([]);
+  const [sessions, setSessions] = useState<SessionData[]>([]);
   const [unplannedItems, setUnplannedItems] = useState<ItemData[]>([]);
   const [unplannedOpen, setUnplannedOpen] = useState(false);
   const [dragItemId, setDragItemId] = useState<string | null>(null);
@@ -332,7 +387,8 @@ export function WeekView({
       .eq("workspace_id", workspaceId)
       .gte("scheduled_date", weekStart)
       .lte("scheduled_date", weekEnd)
-      .is("deleted_at", null);
+      .is("deleted_at", null)
+      .is("session_origin", null);
 
     if (entityId) q = q.eq("entity_id", entityId);
 
@@ -352,6 +408,7 @@ export function WeekView({
         },
         (payload) => {
           const updated = normalizeItem(payload.new as Record<string, unknown>);
+          if (updated.session_origin) return;
           setItems((prev) => {
             const inWeek =
               !!updated.scheduled_date &&
@@ -382,6 +439,30 @@ export function WeekView({
     };
   }, [workspaceId, entityId, weekStart, weekEnd]);
 
+  // ── Data: sessions ────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!workspaceId) return;
+    const supabase = createClient();
+
+    let q = supabase
+      .from("sessions")
+      .select(
+        "id, workspace_id, entity_id, title, type, scheduled_date, scheduled_time, duration_estimate, duration_actual, status, completed_units, total_units, metadata, ai_summary, created_at, deleted_at"
+      )
+      .eq("workspace_id", workspaceId)
+      .is("deleted_at", null)
+      .gte("scheduled_date", weekStart)
+      .lte("scheduled_date", weekEnd)
+      .order("scheduled_date", { ascending: true });
+
+    if (entityId) q = q.eq("entity_id", entityId);
+
+    q.then(({ data }) =>
+      setSessions((data ?? []).map((r) => normalizeSession(r as Record<string, unknown>)))
+    );
+  }, [workspaceId, entityId, weekStart, weekEnd]);
+
   // ── Data: unplanned items ────────────────────────────────────────────────
 
   useEffect(() => {
@@ -393,7 +474,8 @@ export function WeekView({
       .select("*")
       .eq("workspace_id", workspaceId)
       .eq("state", "unplanned")
-      .is("deleted_at", null);
+      .is("deleted_at", null)
+      .is("session_origin", null);
 
     if (entityId) q = q.eq("entity_id", entityId);
 
@@ -619,6 +701,9 @@ export function WeekView({
               const dayItems = items
                 .filter((i) => i.scheduled_date === dateStr)
                 .sort((a, b) => (a.scheduled_time ?? "").localeCompare(b.scheduled_time ?? ""));
+              const daySessions = sessions
+                .filter((s) => s.scheduled_date === dateStr)
+                .sort((a, b) => (a.scheduled_time ?? "").localeCompare(b.scheduled_time ?? ""));
               const isOver = dragOverDate === dateStr && !!dragItemId;
 
               return (
@@ -657,12 +742,22 @@ export function WeekView({
                       {date.getDate()}
                     </span>
                     <span className="mt-0.5 h-3 text-[9px] text-muted-foreground/50">
-                      {dayItems.length > 0 ? dayItems.length : ""}
+                      {dayItems.length + daySessions.length > 0
+                        ? dayItems.length + daySessions.length
+                        : ""}
                     </span>
                   </div>
 
                   {/* Cards */}
                   <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
+                    {daySessions.map((session) => (
+                      <WeekSessionChip
+                        key={session.id}
+                        session={session}
+                        isSelected={selectedSessionId === session.id}
+                        onSelect={() => onSelectSession?.(session)}
+                      />
+                    ))}
                     {dayItems.map((item) => {
                       const entity = entities.find((e) => e.id === item.entity_id) ?? null;
                       return (
