@@ -88,6 +88,24 @@ describe("PATCH /api/items/:id", () => {
       before.getTime() - 1000 // 1s tolerance for clock skew
     );
   });
+
+  it("scheduled_date is updated and returned correctly, other fields unchanged", async () => {
+    const date = "2025-06-15";
+
+    const req = authedReq(`/api/items/${itemId}`, token, {
+      method: "PATCH",
+      body: JSON.stringify({ scheduled_date: date }),
+    });
+    const res = await PATCH(req, { params: { id: itemId } });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { item: Record<string, unknown> };
+    expect(body.item.scheduled_date).toBe(date);
+    // Response must include the item id and preserve unrelated fields
+    expect(body.item.id).toBe(itemId);
+    expect(body.item.title).toBe("Integration test task");
+    expect(body.item.workspace_id).toBe(workspaceId);
+  });
 });
 
 // ── DELETE /api/items/:id ────────────────────────────────────────────────────

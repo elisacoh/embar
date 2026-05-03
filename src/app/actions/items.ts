@@ -112,6 +112,7 @@ export async function updateItem(
     subtasks: Subtask[];
     metadata: Record<string, unknown> | null;
     time_spent_ms: number;
+    position: number;
   }>
 ): Promise<{ ok: true } | { error: string }> {
   const supabase = await createClient();

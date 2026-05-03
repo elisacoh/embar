@@ -105,6 +105,22 @@ function timerMs(t: TimerState): number {
   return t.elapsed + (t.startedAt ? Date.now() - t.startedAt : 0);
 }
 
+function stripHtml(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>|<\/div>/gi, "\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
 function formatElapsed(ms: number): string {
   const s = Math.floor(ms / 1000);
   const m = Math.floor(s / 60);
@@ -154,6 +170,47 @@ function timeToTop(time: string): number {
   return ((h ?? 0) - SCHEDULE_START) * PX_PER_HOUR + ((m ?? 0) / 60) * PX_PER_HOUR;
 }
 
+function timeToMinutes(time: string): number {
+  const [h, m] = time.split(":").map(Number);
+  return (h ?? 0) * 60 + (m ?? 0);
+}
+
+// Returns column assignment for overlapping scheduled items so they render side-by-side.
+function computeScheduleLayout(items: ItemData[]): Map<string, { col: number; totalCols: number }> {
+  if (items.length === 0) return new Map();
+
+  const slots = items.map((item) => ({
+    id: item.id,
+    start: timeToMinutes(item.scheduled_time!),
+    end: timeToMinutes(item.scheduled_time!) + Math.max(item.duration_estimate ?? 30, 30),
+  }));
+
+  // Greedy column assignment: put each item in the first column it doesn't conflict with
+  const cols: number[] = new Array(slots.length).fill(-1);
+  for (let i = 0; i < slots.length; i++) {
+    const usedCols = new Set(
+      slots.slice(0, i).flatMap((other, j) => {
+        const overlaps = other.start < slots[i]!.end && other.end > slots[i]!.start;
+        return overlaps ? [cols[j]!] : [];
+      })
+    );
+    let c = 0;
+    while (usedCols.has(c)) c++;
+    cols[i] = c;
+  }
+
+  // For each item, totalCols = max column in its overlap group + 1
+  const result = new Map<string, { col: number; totalCols: number }>();
+  slots.forEach((slot, i) => {
+    const groupCols = slots
+      .map((other, j) => (other.start < slot.end && other.end > slot.start ? cols[j]! : -1))
+      .filter((c) => c >= 0);
+    result.set(slot.id, { col: cols[i]!, totalCols: Math.max(...groupCols) + 1 });
+  });
+
+  return result;
+}
+
 // ── Current-time indicator ───────────────────────────────────────────────────
 
 function CurrentTimeLine() {
@@ -198,11 +255,12 @@ interface FocusCardProps {
   isSelected: boolean;
   onDragStart: (e: React.DragEvent) => void;
   onDragEnd: () => void;
-  onSelect: () => void;
+  onSelect: (e: React.MouseEvent) => void;
   onPause: () => void;
   onResume: () => void;
   onLater: () => void;
   onDone: () => void;
+  onToggleSubtask: (subtaskId: string) => void;
   onContextMenu: (e: React.MouseEvent) => void;
 }
 
@@ -220,9 +278,12 @@ function FocusCard({
   onResume,
   onLater,
   onDone,
+  onToggleSubtask,
   onContextMenu,
 }: FocusCardProps) {
   const [, setTick] = useState(0);
+  const hasExtra = !!(item.description || item.subtasks.length > 0);
+  const [extraOpen, setExtraOpen] = useState(hasExtra);
 
   // Tick every second while running
   useEffect(() => {
@@ -234,7 +295,6 @@ function FocusCard({
   const isRunning = !!timer?.startedAt;
   const elapsedMs = timer ? timerMs(timer) : 0;
   const targetMin = item.duration_estimate;
-
   return (
     <div
       draggable
@@ -277,30 +337,98 @@ function FocusCard({
         )}
       </div>
 
-      {/* Title */}
-      <div className="px-4 pb-2 pt-3">
-        <p
-          className={cn(
-            "text-sm font-semibold leading-snug text-foreground",
-            completing && "text-muted-foreground line-through"
-          )}
-        >
-          {item.title}
-        </p>
-      </div>
+      {/* Two-column body: left = title + timer, right = description + subtasks */}
+      <div className="flex items-stretch px-4 pb-3 pt-3">
+        {/* Left: title + big timer — always takes remaining space */}
+        <div className="flex min-w-0 flex-1 flex-col justify-center">
+          <p
+            className={cn(
+              "text-sm font-semibold leading-snug text-foreground",
+              completing && "text-muted-foreground line-through"
+            )}
+          >
+            {item.title}
+          </p>
+          <div className="mt-1.5 flex items-baseline gap-1.5">
+            <span
+              className={cn(
+                "font-mono text-2xl font-bold tabular-nums tracking-tight",
+                isRunning ? "text-brand-500" : "text-muted-foreground"
+              )}
+            >
+              {formatElapsed(elapsedMs)}
+            </span>
+            {targetMin != null && (
+              <span className="text-xs text-muted-foreground">/ {formatDuration(targetMin)}</span>
+            )}
+          </div>
+        </div>
 
-      {/* Timer display */}
-      <div className="flex items-baseline gap-2 px-4 pb-3">
-        <span
-          className={cn(
-            "font-mono text-2xl font-bold tabular-nums tracking-tight",
-            isRunning ? "text-brand-500" : "text-muted-foreground"
-          )}
-        >
-          {formatElapsed(elapsedMs)}
-        </span>
-        {targetMin != null && (
-          <span className="text-xs text-muted-foreground">/ {formatDuration(targetMin)}</span>
+        {/* Toggle strip — always visible, chevron points left to collapse, right to expand */}
+        {hasExtra && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setExtraOpen((v) => !v);
+            }}
+            className="flex flex-none items-center self-stretch px-1.5 text-muted-foreground/30 transition-colors hover:text-brand-500"
+          >
+            <ChevronLeft
+              size={12}
+              className={cn("transition-transform duration-200", !extraOpen && "rotate-180")}
+            />
+          </button>
+        )}
+
+        {/* Right: description + subtasks — slides open/closed horizontally */}
+        {hasExtra && (
+          <div
+            className="overflow-hidden border-l border-brand-500/10 transition-[width] duration-200"
+            style={{ width: extraOpen ? "48%" : 0, maxHeight: extraOpen ? undefined : 0 }}
+          >
+            <div className="space-y-1.5 pl-3">
+              {item.description &&
+                (() => {
+                  const text = stripHtml(item.description);
+                  return text ? (
+                    <p className="whitespace-pre-line text-[11px] leading-relaxed text-muted-foreground">
+                      {text}
+                    </p>
+                  ) : null;
+                })()}
+              {item.subtasks.length > 0 && (
+                <div className="space-y-1">
+                  {item.subtasks.map((s) => (
+                    <button
+                      key={s.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleSubtask(s.id);
+                      }}
+                      className="group flex w-full items-center gap-1.5 text-left"
+                    >
+                      <div
+                        className={cn(
+                          "h-3 w-3 flex-none rounded-full border transition-all",
+                          s.done
+                            ? "border-green-500 bg-green-500/30"
+                            : "border-brand-500/40 group-hover:border-brand-500"
+                        )}
+                      />
+                      <span
+                        className={cn(
+                          "text-[11px] leading-snug",
+                          s.done ? "text-muted-foreground/40 line-through" : "text-foreground/75"
+                        )}
+                      >
+                        {s.title}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         )}
       </div>
 
@@ -351,14 +479,20 @@ function FocusCard({
 
 // ── Planned card (grid layout) ────────────────────────────────────────────────
 
-interface PlannedCardProps {
+interface DragTargetProps {
+  isDragTarget: boolean;
+  onDragOver: (e: React.DragEvent) => void;
+  onDragLeave: (e: React.DragEvent) => void;
+}
+
+interface PlannedCardProps extends DragTargetProps {
   item: ItemData;
   entity: EntityData | null;
   isDragging: boolean;
   isSelected: boolean;
   onDragStart: (e: React.DragEvent) => void;
   onDragEnd: () => void;
-  onSelect: () => void;
+  onSelect: (e: React.MouseEvent) => void;
   onFocus: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
 }
@@ -368,8 +502,11 @@ function PlannedCard({
   entity,
   isDragging,
   isSelected,
+  isDragTarget,
   onDragStart,
   onDragEnd,
+  onDragOver,
+  onDragLeave,
   onSelect,
   onFocus,
   onContextMenu,
@@ -386,6 +523,8 @@ function PlannedCard({
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
       onClick={onSelect}
       onContextMenu={onContextMenu}
       className={cn(
@@ -400,6 +539,8 @@ function PlannedCard({
         isDragging && "opacity-30"
       )}
     >
+      {isDragTarget && <div className="absolute inset-x-0 top-0 h-0.5 rounded-full bg-brand-500" />}
+
       {/* Urgency accent strip */}
       {hasAccent && (
         <div
@@ -513,7 +654,7 @@ function PlannedCard({
 
 // ── Regular task card ────────────────────────────────────────────────────────
 
-interface TaskCardProps {
+interface TaskCardProps extends DragTargetProps {
   item: ItemData;
   completing: boolean;
   isDragging: boolean;
@@ -522,7 +663,7 @@ interface TaskCardProps {
   onDragStart: (e: React.DragEvent) => void;
   onDragEnd: () => void;
   onCheckbox: () => void;
-  onSelect: () => void;
+  onSelect: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
 }
 
@@ -531,9 +672,12 @@ function TaskCard({
   completing,
   isDragging,
   isSelected,
+  isDragTarget,
   overdueBadge: overdueLabel,
   onDragStart,
   onDragEnd,
+  onDragOver,
+  onDragLeave,
   onCheckbox,
   onSelect,
   onContextMenu,
@@ -549,6 +693,8 @@ function TaskCard({
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
       onClick={onSelect}
       onContextMenu={onContextMenu}
       className={cn(
@@ -565,6 +711,8 @@ function TaskCard({
         completing && "opacity-40"
       )}
     >
+      {isDragTarget && <div className="absolute inset-x-0 top-0 h-0.5 rounded-full bg-brand-500" />}
+
       {/* Urgency accent strip */}
       {(isCritical || isUrgent) && (
         <div
@@ -684,14 +832,14 @@ function TaskCard({
 
 // ── Unplanned (Later) row ────────────────────────────────────────────────────
 
-interface UnplannedRowProps {
+interface UnplannedRowProps extends DragTargetProps {
   item: ItemData;
   isSelected: boolean;
   isDragging: boolean;
   overdueBadge?: string | null;
   onDragStart: (e: React.DragEvent) => void;
   onDragEnd: () => void;
-  onSelect: () => void;
+  onSelect: (e: React.MouseEvent) => void;
   onSchedule: (date: string, time: string | null) => void;
   onContextMenu: (e: React.MouseEvent) => void;
 }
@@ -700,9 +848,12 @@ function UnplannedRow({
   item,
   isSelected,
   isDragging,
+  isDragTarget,
   overdueBadge: overdueLabel,
   onDragStart,
   onDragEnd,
+  onDragOver,
+  onDragLeave,
   onSelect,
   onSchedule,
   onContextMenu,
@@ -722,14 +873,17 @@ function UnplannedRow({
         draggable
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
         className={cn(
-          "group flex cursor-grab items-center gap-3 px-4 py-1.5 transition-colors hover:bg-muted/40",
+          "group relative flex cursor-grab items-center gap-3 px-4 py-1.5 transition-colors hover:bg-muted/40",
           isSelected && "bg-brand-500/5",
           isDragging && "opacity-30"
         )}
         onClick={onSelect}
         onContextMenu={onContextMenu}
       >
+        {isDragTarget && <div className="absolute inset-x-0 top-0 h-0.5 bg-brand-500" />}
         <div
           className={cn(
             "h-1.5 w-1.5 flex-none rounded-full",
@@ -814,7 +968,7 @@ export function TodayView({
   entityId,
   entities,
   onSelectItem,
-  selectedItemId,
+  selectedItemId: _selectedItemId,
   onNewTask,
   pendingItem,
   viewDate: viewDateProp,
@@ -824,20 +978,27 @@ export function TodayView({
   const isViewingToday = viewDateStr === TODAY;
   const [items, setItems] = useState<ItemData[]>([]);
   const [scheduleOpen, setScheduleOpen] = useState(true);
+  const [scheduleWidth, setScheduleWidth] = useState(320);
+  const [isResizing, setIsResizing] = useState(false);
   const [completingIds, setCompletingIds] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<{ item: ItemData; x: number; y: number } | null>(
     null
   );
   const [deleteTarget, setDeleteTarget] = useState<ItemData | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [focusSwap, setFocusSwap] = useState<{ incomingId: string; currentItem: ItemData } | null>(
-    null
-  );
+  // Tracks where each item was before it entered focus — keyed by item ID
+  const [prevFocusStates, setPrevFocusStates] = useState<Map<string, SectionState>>(new Map());
+
+  // Multi-select state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [anchorItemId, setAnchorItemId] = useState<string | null>(null);
+  const [dragIds, setDragIds] = useState<Set<string>>(new Set());
 
   // Drag state
   const [dragItemId, setDragItemId] = useState<string | null>(null);
   const [dragOverSection, setDragOverSection] = useState<SectionState | null>(null);
   const [dragOverHour, setDragOverHour] = useState<number | null>(null);
+  const [dragOverItemId, setDragOverItemId] = useState<string | null>(null);
 
   // Timer state (localStorage-backed)
   const [timer, setTimerState] = useState<TimerState | null>(null);
@@ -973,6 +1134,18 @@ export function TodayView({
     scheduleScrollRef.current.scrollTop = Math.max(0, (h - SCHEDULE_START - 1) * PX_PER_HOUR);
   }, [scheduleOpen]);
 
+  // Escape clears multi-selection
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setSelectedIds(new Set());
+        setAnchorItemId(null);
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   // ── Timer operations ──────────────────────────────────────────────────────
 
   function startTimerFor(itemId: string) {
@@ -995,18 +1168,19 @@ export function TodayView({
     });
   }
 
-  // Bank elapsed to DB and stop the timer.
-  // saveForLater=true  → persist time_spent_ms so it resumes next focus session
-  // saveForLater=false → reset time_spent_ms to 0 (task done / hard reset)
-  function stopTimerAndGetMinutes(saveForLater = false): number {
+  // Stop timer and return { minutes, time_spent_ms } for the caller to include in its updateItem.
+  // Does NOT call updateItem itself — avoids the realtime flash from two separate DB writes.
+  function stopTimerAndGetMinutes(saveForLater = false): {
+    minutes: number;
+    time_spent_ms: number;
+  } {
     const t = timerRef.current;
-    if (!t) return 0;
+    if (!t) return { minutes: 0, time_spent_ms: 0 };
     const ms = timerMs(t);
     const newMs = saveForLater ? ms : 0;
     setItems((prev) => prev.map((i) => (i.id === t.itemId ? { ...i, time_spent_ms: newMs } : i)));
-    void updateItem(t.itemId, { time_spent_ms: newMs });
     setTimer(null);
-    return Math.max(1, Math.round(ms / 60000));
+    return { minutes: Math.max(1, Math.round(ms / 60000)), time_spent_ms: newMs };
   }
 
   function handleResetTimer(itemId: string) {
@@ -1028,12 +1202,12 @@ export function TodayView({
   function setFocusItem(id: string) {
     const item = items.find((i) => i.id === id);
     if (!item || item.state === "focus") return;
-    if (item.state === "focus") setTimer(null);
     const currentFocus = items.filter((i) => i.state === "focus");
     if (currentFocus.length > 0) {
-      setFocusSwap({ incomingId: id, currentItem: currentFocus[0]! });
+      autoSwapFocus(id, currentFocus[0]!);
       return;
     }
+    setPrevFocusStates((prev) => new Map(prev).set(id, item.state as SectionState));
     startTimerFor(id);
     applyDrop(id, "focus");
   }
@@ -1045,11 +1219,18 @@ export function TodayView({
   }
 
   function handleLater(item: ItemData) {
-    stopTimerAndGetMinutes(true); // bank elapsed, don't save duration_actual
-    const updates = {
-      state: "unplanned" as const,
-      scheduled_date: null,
-    };
+    const { time_spent_ms } = stopTimerAndGetMinutes(true);
+    const targetState = prevFocusStates.get(item.id) ?? "unplanned";
+    setPrevFocusStates((prev) => {
+      const next = new Map(prev);
+      next.delete(item.id);
+      return next;
+    });
+    const scheduled_date =
+      targetState === "planned" || targetState === "someday"
+        ? (item.scheduled_date ?? viewDateStr)
+        : null;
+    const updates = { state: targetState, scheduled_date, time_spent_ms };
     setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, ...updates } : i)));
     void updateItem(item.id, updates);
   }
@@ -1077,14 +1258,22 @@ export function TodayView({
   }
 
   function handleFocusDone(item: ItemData) {
-    const mins = stopTimerAndGetMinutes();
-    completeItem(item.id, { duration_actual: mins });
+    const { minutes, time_spent_ms } = stopTimerAndGetMinutes(false);
+    completeItem(item.id, { duration_actual: minutes, time_spent_ms });
   }
 
   // ── Handlers: regular completion + delete ─────────────────────────────────
 
   function handleCheckbox(item: ItemData) {
     completeItem(item.id);
+  }
+
+  function handleToggleSubtask(item: ItemData, subtaskId: string) {
+    const newSubtasks = item.subtasks.map((s) =>
+      s.id === subtaskId ? { ...s, done: !s.done } : s
+    );
+    setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, subtasks: newSubtasks } : i)));
+    void updateItem(item.id, { subtasks: newSubtasks });
   }
 
   function handleContextMenu(e: React.MouseEvent, item: ItemData) {
@@ -1106,14 +1295,20 @@ export function TodayView({
   // ── Handlers: drag ────────────────────────────────────────────────────────
 
   function handleDragStart(e: React.DragEvent, item: ItemData) {
+    const ids = selectedIds.has(item.id) ? new Set(selectedIds) : new Set([item.id]);
     setDragItemId(item.id);
+    setDragIds(ids);
     e.dataTransfer.effectAllowed = "move";
   }
 
   function handleDragEnd() {
     setDragItemId(null);
+    setDragIds(new Set());
+    setSelectedIds(new Set());
+    setAnchorItemId(null);
     setDragOverSection(null);
     setDragOverHour(null);
+    setDragOverItemId(null);
   }
 
   function handleSectionDragOver(e: React.DragEvent, state: SectionState) {
@@ -1126,69 +1321,232 @@ export function TodayView({
   function handleSectionDragLeave(e: React.DragEvent) {
     if (!e.currentTarget.contains(e.relatedTarget as Node)) {
       setDragOverSection(null);
+      setDragOverItemId(null);
+    }
+  }
+
+  function handleItemDragOver(_e: React.DragEvent, itemId: string) {
+    if (dragOverItemId !== itemId) setDragOverItemId(itemId);
+  }
+
+  function handleItemDragLeave(e: React.DragEvent) {
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setDragOverItemId(null);
     }
   }
 
   function clearDragState() {
     setDragItemId(null);
+    setDragIds(new Set());
     setDragOverSection(null);
     setDragOverHour(null);
+    setDragOverItemId(null);
   }
 
-  function applyDrop(id: string, targetState: SectionState) {
+  function handleItemSelect(e: React.MouseEvent, item: ItemData) {
+    e.stopPropagation();
+    if (e.shiftKey && anchorItemId) {
+      const flat = visibleSections.flatMap((s) => s.items);
+      const anchorIdx = flat.findIndex((i) => i.id === anchorItemId);
+      const clickIdx = flat.findIndex((i) => i.id === item.id);
+      if (anchorIdx !== -1 && clickIdx !== -1) {
+        const [lo, hi] = anchorIdx <= clickIdx ? [anchorIdx, clickIdx] : [clickIdx, anchorIdx];
+        setSelectedIds(new Set(flat.slice(lo, hi + 1).map((i) => i.id)));
+      }
+    } else if (e.ctrlKey || e.metaKey) {
+      // Toggle selection only — do NOT open the detail panel
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(item.id)) next.delete(item.id);
+        else next.add(item.id);
+        return next;
+      });
+      setAnchorItemId(item.id);
+    } else {
+      setSelectedIds(new Set([item.id]));
+      setAnchorItemId(item.id);
+      onSelectItem(item.id);
+    }
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+    setAnchorItemId(null);
+  }
+
+  function applyDrop(
+    id: string,
+    targetState: SectionState,
+    position?: number,
+    extra: Partial<Parameters<typeof updateItem>[1]> = {}
+  ) {
     const dateUpdates =
       targetState === "planned" || targetState === "someday"
         ? { scheduled_date: viewDateStr }
         : targetState === "unplanned"
           ? { scheduled_date: null }
           : {};
-    const updates = { state: targetState, ...dateUpdates };
+    const updates = {
+      state: targetState,
+      ...dateUpdates,
+      ...(position !== undefined ? { position } : {}),
+      ...extra,
+    };
     setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...updates } : i)));
     void updateItem(id, updates);
+  }
+
+  function reorderWithinSection(
+    draggedId: string,
+    sectionState: SectionState,
+    insertBeforeId: string | null
+  ) {
+    const sectionItems = sections.find((s) => s.state === sectionState)?.items ?? [];
+    const dragged = sectionItems.find((i) => i.id === draggedId);
+    if (!dragged) return;
+
+    const withoutDragged = sectionItems.filter((i) => i.id !== draggedId);
+    const insertIdx =
+      insertBeforeId !== null ? withoutDragged.findIndex((i) => i.id === insertBeforeId) : -1;
+    const finalIdx = insertIdx === -1 ? withoutDragged.length : insertIdx;
+
+    const reordered = [
+      ...withoutDragged.slice(0, finalIdx),
+      dragged,
+      ...withoutDragged.slice(finalIdx),
+    ];
+
+    const positionMap = new Map(reordered.map((item, idx) => [item.id, idx]));
+    setItems((prev) =>
+      prev.map((i) => {
+        const newPos = positionMap.get(i.id);
+        return newPos !== undefined && newPos !== i.position ? { ...i, position: newPos } : i;
+      })
+    );
+    reordered.forEach((item, idx) => {
+      if (item.position !== idx) void updateItem(item.id, { position: idx });
+    });
+  }
+
+  function reorderMultipleWithinSection(
+    draggedIds: string[],
+    sectionState: SectionState,
+    insertBeforeId: string | null
+  ) {
+    const sectionItems = sections.find((s) => s.state === sectionState)?.items ?? [];
+    const dragSet = new Set(draggedIds);
+    const draggedInOrder = sectionItems.filter((i) => dragSet.has(i.id));
+    const withoutDragged = sectionItems.filter((i) => !dragSet.has(i.id));
+    const insertIdx =
+      insertBeforeId !== null ? withoutDragged.findIndex((i) => i.id === insertBeforeId) : -1;
+    const finalIdx = insertIdx === -1 ? withoutDragged.length : insertIdx;
+    const reordered = [
+      ...withoutDragged.slice(0, finalIdx),
+      ...draggedInOrder,
+      ...withoutDragged.slice(finalIdx),
+    ];
+    const positionMap = new Map(reordered.map((item, idx) => [item.id, idx]));
+    setItems((prev) =>
+      prev.map((i) => {
+        const newPos = positionMap.get(i.id);
+        return newPos !== undefined && newPos !== i.position ? { ...i, position: newPos } : i;
+      })
+    );
+    reordered.forEach((item, idx) => {
+      if (item.position !== idx) void updateItem(item.id, { position: idx });
+    });
   }
 
   function handleSectionDrop(e: React.DragEvent, targetState: SectionState) {
     e.preventDefault();
     const id = dragItemId;
+    const allDragIds = dragIds.size > 0 ? dragIds : id ? new Set([id]) : new Set<string>();
+    const insertBeforeId = dragOverItemId;
     clearDragState();
-    if (!id) return;
+    if (!id || allDragIds.size === 0) return;
     const item = items.find((i) => i.id === id);
-    if (!item || item.state === targetState) return;
+    if (!item) return;
 
-    // Stop timer if item leaves focus — bank elapsed so it can be resumed later
-    if (item.state === "focus") stopTimerAndGetMinutes(true);
+    // Stop timer if primary dragged item leaves focus — bundle into same DB write
+    const extra: Partial<Parameters<typeof updateItem>[1]> = {};
+    if (item.state === "focus" && targetState !== "focus") {
+      const { time_spent_ms } = stopTimerAndGetMinutes(true);
+      extra.time_spent_ms = time_spent_ms;
+    }
 
-    // Dropping to done triggers completion animation
+    // Dropping to done
     if (targetState === "done") {
-      completeItem(id);
+      allDragIds.forEach((did) => completeItem(did));
       return;
     }
 
+    // Focus: only allow single-item
     if (targetState === "focus") {
+      if (allDragIds.size > 1) return;
       const currentFocus = items.filter((i) => i.state === "focus" && i.id !== id);
       if (currentFocus.length > 0) {
-        // Ask user before displacing the active focus item
-        setFocusSwap({ incomingId: id, currentItem: currentFocus[0]! });
-        return; // drag state already cleared above
+        autoSwapFocus(id, currentFocus[0]!);
+        return;
       }
-      startTimerFor(id);
+      if (item.state !== "focus") {
+        setPrevFocusStates((prev) => new Map(prev).set(id, item.state as SectionState));
+        startTimerFor(id);
+      }
     }
 
-    applyDrop(id, targetState);
+    // Single item — existing reorder/move logic
+    if (allDragIds.size === 1) {
+      if (item.state === targetState) {
+        reorderWithinSection(id, targetState, insertBeforeId);
+        return;
+      }
+      const targetItems = sections.find((s) => s.state === targetState)?.items ?? [];
+      applyDrop(id, targetState, targetItems.length, extra);
+      return;
+    }
+
+    // Multi-item — check if all are in the same section
+    const draggedItems = items.filter((i) => allDragIds.has(i.id));
+    if (draggedItems.every((i) => i.state === targetState)) {
+      reorderMultipleWithinSection(Array.from(allDragIds), targetState, insertBeforeId);
+      return;
+    }
+
+    // Multi-item cross-section: append all to target in current relative order
+    const targetItems = sections.find((s) => s.state === targetState)?.items ?? [];
+    const basePosition = targetItems.length;
+    draggedItems.forEach((di, idx) => {
+      const itemExtra = di.id === id ? extra : {};
+      applyDrop(di.id, targetState, basePosition + idx, itemExtra);
+    });
   }
 
-  function handleConfirmFocusSwap() {
-    if (!focusSwap) return;
-    const { incomingId, currentItem } = focusSwap;
-    // Move current focus → planned + viewed date, banking its timer elapsed
-    const displaced = { state: "planned" as const, scheduled_date: viewDateStr };
-    setItems((prev) => prev.map((i) => (i.id === currentItem.id ? { ...i, ...displaced } : i)));
-    void updateItem(currentItem.id, displaced);
-    stopTimerAndGetMinutes(true);
-    // Move incoming → focus + start timer
+  function autoSwapFocus(incomingId: string, currentFocusItem: ItemData) {
+    const incomingItem = items.find((i) => i.id === incomingId);
+    if (!incomingItem) return;
+    // Look up where the current focus item came from before mutating the map
+    const displacedState = prevFocusStates.get(currentFocusItem.id) ?? "planned";
+    // Update map: record incoming's origin, drop current focus's entry
+    setPrevFocusStates((prev) => {
+      const next = new Map(prev);
+      next.set(incomingId, incomingItem.state as SectionState);
+      next.delete(currentFocusItem.id);
+      return next;
+    });
+    // Bank timer and restore current focus to its previous section
+    const { time_spent_ms } = stopTimerAndGetMinutes(true);
+    const displaced_date =
+      displacedState === "planned" || displacedState === "someday"
+        ? (currentFocusItem.scheduled_date ?? viewDateStr)
+        : null;
+    const displaced = { state: displacedState, scheduled_date: displaced_date, time_spent_ms };
+    setItems((prev) =>
+      prev.map((i) => (i.id === currentFocusItem.id ? { ...i, ...displaced } : i))
+    );
+    void updateItem(currentFocusItem.id, displaced);
+    // Move incoming → focus
     startTimerFor(incomingId);
     applyDrop(incomingId, "focus");
-    setFocusSwap(null);
   }
 
   function handleHourDragOver(e: React.DragEvent, hour: number) {
@@ -1200,17 +1558,24 @@ export function TodayView({
 
   function handleHourDrop(e: React.DragEvent, hour: number) {
     e.preventDefault();
-    const id = dragItemId;
+    const anchorId = dragItemId;
+    const allDragIds =
+      dragIds.size > 0 ? dragIds : anchorId ? new Set([anchorId]) : new Set<string>();
     clearDragState();
-    if (!id) return;
-    const item = items.find((i) => i.id === id);
-    const time = `${String(hour).padStart(2, "0")}:00`;
-    const needsState = item && (item.state === "carry-on" || item.state === "unplanned");
-    const updates = needsState
-      ? { scheduled_time: time, scheduled_date: viewDateStr, state: "planned" as const }
-      : { scheduled_time: time, scheduled_date: viewDateStr };
-    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...updates } : i)));
-    void updateItem(id, updates);
+    if (allDragIds.size === 0) return;
+    const h = Math.floor(hour);
+    const m = hour !== h ? 30 : 0;
+    const time = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+    allDragIds.forEach((id) => {
+      const dragItem = items.find((i) => i.id === id);
+      const needsState =
+        dragItem && (dragItem.state === "carry-on" || dragItem.state === "unplanned");
+      const updates = needsState
+        ? { scheduled_time: time, scheduled_date: viewDateStr, state: "planned" as const }
+        : { scheduled_time: time, scheduled_date: viewDateStr };
+      setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...updates } : i)));
+      void updateItem(id, updates);
+    });
   }
 
   // ── Derived ───────────────────────────────────────────────────────────────
@@ -1232,13 +1597,17 @@ export function TodayView({
           return i.completed_at?.startsWith(viewDateStr) ?? false;
       }
     });
-    // Planned items sorted by scheduled_time ascending
-    const sortedItems =
-      s.state === "planned"
-        ? [...filtered].sort((a, b) =>
-            (a.scheduled_time ?? "").localeCompare(b.scheduled_time ?? "")
-          )
-        : filtered;
+    // Planned: timed items first sorted by time, then untimed by position
+    const sortedItems = [...filtered].sort((a, b) => {
+      if (s.state === "planned") {
+        if (a.scheduled_time && b.scheduled_time)
+          return a.scheduled_time.localeCompare(b.scheduled_time);
+        if (a.scheduled_time) return -1;
+        if (b.scheduled_time) return 1;
+      }
+      if (a.position !== b.position) return a.position - b.position;
+      return a.created_at.localeCompare(b.created_at);
+    });
     return { ...s, items: sortedItems };
   });
 
@@ -1251,13 +1620,34 @@ export function TodayView({
     .filter((i) => i.scheduled_date === viewDateStr && i.scheduled_time)
     .sort((a, b) => (a.scheduled_time ?? "").localeCompare(b.scheduled_time ?? ""));
 
+  const scheduleLayout = computeScheduleLayout(scheduledItems);
+
+  function handleResizeStart(e: React.MouseEvent) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = scheduleWidth;
+    setIsResizing(true);
+
+    function onMouseMove(ev: MouseEvent) {
+      const delta = startX - ev.clientX;
+      setScheduleWidth(Math.max(160, Math.min(600, startWidth + delta)));
+    }
+    function onMouseUp() {
+      setIsResizing(false);
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    }
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <>
-      <div className="flex h-full overflow-hidden">
+      <div className={cn("flex h-full overflow-hidden", isResizing && "select-none")}>
         {/* ── Task sections ─────────────────────────────────────────────── */}
-        <div className="min-w-0 flex-[7] overflow-y-auto">
+        <div className="min-w-0 flex-1 overflow-y-auto" onClick={clearSelection}>
           {visibleSections.map((section) => (
             <div
               key={section.state}
@@ -1317,15 +1707,16 @@ export function TodayView({
                           entity={entity}
                           timer={timer?.itemId === item.id ? timer : null}
                           completing={completingIds.has(item.id)}
-                          isDragging={dragItemId === item.id}
-                          isSelected={selectedItemId === item.id}
+                          isDragging={dragIds.has(item.id)}
+                          isSelected={selectedIds.has(item.id)}
                           onDragStart={(e) => handleDragStart(e, item)}
                           onDragEnd={handleDragEnd}
-                          onSelect={() => onSelectItem(item.id)}
+                          onSelect={(e) => handleItemSelect(e, item)}
                           onPause={pauseTimer}
                           onResume={resumeTimer}
                           onLater={() => handleLater(item)}
                           onDone={() => handleFocusDone(item)}
+                          onToggleSubtask={(subtaskId) => handleToggleSubtask(item, subtaskId)}
                           onContextMenu={(e) => handleContextMenu(e, item)}
                         />
                       );
@@ -1353,11 +1744,14 @@ export function TodayView({
                             key={item.id}
                             item={item}
                             entity={entity}
-                            isDragging={dragItemId === item.id}
-                            isSelected={selectedItemId === item.id}
+                            isDragging={dragIds.has(item.id)}
+                            isSelected={selectedIds.has(item.id)}
+                            isDragTarget={dragOverItemId === item.id && !dragIds.has(item.id)}
                             onDragStart={(e) => handleDragStart(e, item)}
                             onDragEnd={handleDragEnd}
-                            onSelect={() => onSelectItem(item.id)}
+                            onDragOver={(e) => handleItemDragOver(e, item.id)}
+                            onDragLeave={handleItemDragLeave}
+                            onSelect={(e) => handleItemSelect(e, item)}
                             onFocus={() => setFocusItem(item.id)}
                             onContextMenu={(e) => handleContextMenu(e, item)}
                           />
@@ -1384,11 +1778,14 @@ export function TodayView({
                         <UnplannedRow
                           key={item.id}
                           item={item}
-                          isSelected={selectedItemId === item.id}
-                          isDragging={dragItemId === item.id}
+                          isSelected={selectedIds.has(item.id)}
+                          isDragging={dragIds.has(item.id)}
+                          isDragTarget={dragOverItemId === item.id && !dragIds.has(item.id)}
                           onDragStart={(e) => handleDragStart(e, item)}
                           onDragEnd={handleDragEnd}
-                          onSelect={() => onSelectItem(item.id)}
+                          onDragOver={(e) => handleItemDragOver(e, item.id)}
+                          onDragLeave={handleItemDragLeave}
+                          onSelect={(e) => handleItemSelect(e, item)}
                           onSchedule={(date, time) => handleScheduleItem(item.id, date, time)}
                           onContextMenu={(e) => handleContextMenu(e, item)}
                         />
@@ -1414,12 +1811,15 @@ export function TodayView({
                         <UnplannedRow
                           key={item.id}
                           item={item}
-                          isSelected={selectedItemId === item.id}
-                          isDragging={dragItemId === item.id}
+                          isSelected={selectedIds.has(item.id)}
+                          isDragging={dragIds.has(item.id)}
+                          isDragTarget={dragOverItemId === item.id && !dragIds.has(item.id)}
                           overdueBadge={overdueBadge(item.scheduled_date)}
                           onDragStart={(e) => handleDragStart(e, item)}
                           onDragEnd={handleDragEnd}
-                          onSelect={() => onSelectItem(item.id)}
+                          onDragOver={(e) => handleItemDragOver(e, item.id)}
+                          onDragLeave={handleItemDragLeave}
+                          onSelect={(e) => handleItemSelect(e, item)}
                           onSchedule={(date, time) => handleScheduleItem(item.id, date, time)}
                           onContextMenu={(e) => handleContextMenu(e, item)}
                         />
@@ -1446,12 +1846,15 @@ export function TodayView({
                       key={item.id}
                       item={item}
                       completing={completingIds.has(item.id)}
-                      isDragging={dragItemId === item.id}
-                      isSelected={selectedItemId === item.id}
+                      isDragging={dragIds.has(item.id)}
+                      isSelected={selectedIds.has(item.id)}
+                      isDragTarget={dragOverItemId === item.id && !dragIds.has(item.id)}
                       onDragStart={(e) => handleDragStart(e, item)}
                       onDragEnd={handleDragEnd}
+                      onDragOver={(e) => handleItemDragOver(e, item.id)}
+                      onDragLeave={handleItemDragLeave}
                       onCheckbox={() => handleCheckbox(item)}
-                      onSelect={() => onSelectItem(item.id)}
+                      onSelect={(e) => handleItemSelect(e, item)}
                       onContextMenu={(e) => handleContextMenu(e, item)}
                     />
                   ))
@@ -1472,12 +1875,26 @@ export function TodayView({
           </div>
         </div>
 
+        {/* ── Resize handle ──────────────────────────────────────────────── */}
+        {scheduleOpen && (
+          <div
+            className={cn(
+              "w-1 flex-none cursor-col-resize bg-transparent transition-colors hover:bg-brand-500/40",
+              isResizing && "bg-brand-500/40"
+            )}
+            onMouseDown={handleResizeStart}
+          />
+        )}
+
         {/* ── Schedule panel ─────────────────────────────────────────────── */}
         <div
           className={cn(
-            "flex flex-col border-l border-border transition-all duration-300",
-            scheduleOpen ? "flex-[3]" : "w-8 flex-none"
+            "flex flex-col border-l border-border",
+            !isResizing && "transition-all duration-300"
           )}
+          style={
+            scheduleOpen ? { width: scheduleWidth, flexShrink: 0 } : { width: 32, flexShrink: 0 }
+          }
         >
           {scheduleOpen ? (
             <>
@@ -1507,8 +1924,8 @@ export function TodayView({
                       onClick={() => onSelectItem(item.id)}
                       className={cn(
                         "cursor-pointer rounded-lg border border-brand-500/30 bg-brand-500/10 px-2.5 py-1.5 transition-all hover:bg-brand-500/20",
-                        selectedItemId === item.id && "ring-1 ring-brand-500",
-                        dragItemId === item.id && "opacity-30"
+                        selectedIds.has(item.id) && "ring-1 ring-brand-500",
+                        dragIds.has(item.id) && "opacity-30"
                       )}
                     >
                       <p className="line-clamp-2 text-xs font-medium leading-snug text-brand-600 dark:text-brand-400">
@@ -1531,29 +1948,60 @@ export function TodayView({
 
               <div ref={scheduleScrollRef} className="flex-1 overflow-y-auto py-2">
                 <div className="relative" style={{ height: HOURS.length * PX_PER_HOUR + 16 }}>
-                  {/* Hour rows — each is a drop target */}
+                  {/* Hour rows — split into :00 and :30 drop targets */}
                   {HOURS.map((h, i) => (
                     <div
                       key={h}
-                      className={cn(
-                        "absolute left-0 right-0 transition-colors",
-                        dragOverHour === h && dragItemId && "bg-brand-500/10"
-                      )}
+                      className="absolute left-0 right-0"
                       style={{ top: i * PX_PER_HOUR + 8, height: PX_PER_HOUR }}
-                      onDragOver={(e) => handleHourDragOver(e, h)}
-                      onDrop={(e) => handleHourDrop(e, h)}
                     >
-                      <div className="flex items-center">
-                        <span className="w-12 flex-none pr-2 text-right text-[10px] tabular-nums text-muted-foreground/50">
-                          {h % 12 === 0 ? 12 : h % 12}
-                          <span className="text-[8px]">{h < 12 ? "am" : "pm"}</span>
-                        </span>
-                        <div
-                          className={cn(
-                            "h-px flex-1 transition-colors",
-                            dragOverHour === h && dragItemId ? "bg-brand-400/60" : "bg-border/60"
-                          )}
-                        />
+                      {/* On-the-hour zone */}
+                      <div
+                        className={cn("absolute inset-x-0 top-0 transition-colors")}
+                        style={{ height: PX_PER_HOUR / 2 }}
+                        onDragOver={(e) => handleHourDragOver(e, h)}
+                        onDrop={(e) => handleHourDrop(e, h)}
+                      >
+                        {dragOverHour === h && dragItemId && (
+                          <div className="absolute inset-0 bg-brand-500/10" />
+                        )}
+                        <div className="flex items-center">
+                          <span className="w-12 flex-none pr-2 text-right text-[10px] tabular-nums text-muted-foreground/50">
+                            {h % 12 === 0 ? 12 : h % 12}
+                            <span className="text-[8px]">{h < 12 ? "am" : "pm"}</span>
+                          </span>
+                          <div
+                            className={cn(
+                              "h-px flex-1 transition-colors",
+                              dragOverHour === h && dragItemId ? "bg-brand-400/60" : "bg-border/60"
+                            )}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Half-hour zone */}
+                      <div
+                        className="absolute inset-x-0 bottom-0 transition-colors"
+                        style={{ height: PX_PER_HOUR / 2 }}
+                        onDragOver={(e) => handleHourDragOver(e, h + 0.5)}
+                        onDrop={(e) => handleHourDrop(e, h + 0.5)}
+                      >
+                        {dragOverHour === h + 0.5 && dragItemId && (
+                          <div className="absolute inset-0 bg-brand-500/10" />
+                        )}
+                        <div className="flex items-center">
+                          <span className="w-12 flex-none pr-2 text-right text-[9px] tabular-nums text-muted-foreground/25">
+                            :30
+                          </span>
+                          <div
+                            className={cn(
+                              "h-px w-5 transition-colors",
+                              dragOverHour === h + 0.5 && dragItemId
+                                ? "bg-brand-400/60"
+                                : "bg-border/30"
+                            )}
+                          />
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -1566,6 +2014,16 @@ export function TodayView({
                     const height = item.duration_estimate
                       ? Math.max((item.duration_estimate / 60) * PX_PER_HOUR, 28)
                       : 28;
+                    const { col, totalCols } = scheduleLayout.get(item.id) ?? {
+                      col: 0,
+                      totalCols: 1,
+                    };
+                    // Pre-compute % + px to avoid CSS calc * operator (unreliable with mixed units)
+                    const colWidthPct = 100 / totalCols;
+                    const gutter = 60; // 52px label + 8px right margin
+                    const colWidthPxCut = gutter / totalCols;
+                    const leftPct = col * colWidthPct;
+                    const leftPx = 52 - col * colWidthPxCut;
                     return (
                       <div
                         key={item.id}
@@ -1574,11 +2032,18 @@ export function TodayView({
                         onDragEnd={handleDragEnd}
                         onClick={() => onSelectItem(item.id)}
                         className={cn(
-                          "absolute right-2 cursor-pointer overflow-hidden rounded-lg border border-brand-500/20 bg-brand-500/10 px-2 py-1 text-xs font-medium text-brand-600 transition-all hover:bg-brand-500/20 dark:text-brand-400",
-                          selectedItemId === item.id && "ring-1 ring-brand-500",
-                          dragItemId === item.id && "opacity-30"
+                          "absolute cursor-pointer overflow-hidden rounded-lg border border-brand-500/20 bg-brand-500/10 px-2 py-1 text-xs font-medium text-brand-600 transition-all hover:bg-brand-500/20 dark:text-brand-400",
+                          selectedIds.has(item.id) && "ring-1 ring-brand-500",
+                          dragIds.has(item.id) && "opacity-30",
+                          // Let drag events pass through to hour zones beneath when another item is being dragged
+                          dragIds.size > 0 && !dragIds.has(item.id) && "pointer-events-none"
                         )}
-                        style={{ left: 52, top, height }}
+                        style={{
+                          top,
+                          height,
+                          left: `calc(${leftPct}% + ${leftPx}px)`,
+                          width: `calc(${colWidthPct}% - ${colWidthPxCut + 4}px)`,
+                        }}
                       >
                         <span className="line-clamp-2 leading-tight">{item.title}</span>
                         {item.duration_estimate != null && height > 36 && (
@@ -1688,42 +2153,6 @@ export function TodayView({
             </button>
           </div>
         </>
-      )}
-
-      {/* ── Focus swap confirmation ──────────────────────────────────────── */}
-      {focusSwap && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-            onClick={() => setFocusSwap(null)}
-          />
-          <div className="relative w-full max-w-xs rounded-2xl border border-border bg-background p-6 shadow-2xl">
-            <div className="mb-1 flex h-9 w-9 items-center justify-center rounded-full bg-brand-500/10">
-              <Clock size={16} className="text-brand-500" />
-            </div>
-            <p className="mt-3 text-sm font-semibold text-foreground">
-              You&apos;re currently working on this
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              &ldquo;{focusSwap.currentItem.title}&rdquo; is in focus. Move it to Planned and
-              switch?
-            </p>
-            <div className="mt-4 flex gap-2">
-              <button
-                onClick={() => setFocusSwap(null)}
-                className="flex-1 rounded-lg border border-border py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
-              >
-                Keep current
-              </button>
-              <button
-                onClick={handleConfirmFocusSwap}
-                className="flex-1 rounded-lg bg-brand-500 py-2 text-sm font-semibold text-white transition-opacity hover:bg-brand-600"
-              >
-                Switch
-              </button>
-            </div>
-          </div>
-        </div>
       )}
 
       {/* ── Delete confirmation ──────────────────────────────────────────── */}
