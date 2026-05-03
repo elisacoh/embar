@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   ChevronLeft,
   ChevronRight,
+  Layers,
 } from "lucide-react";
 
 function toLocalDateStr(d: Date): string {
@@ -31,12 +32,15 @@ function formatViewDate(d: Date): string {
 import { TasksTopNav, type TimeView } from "./TasksTopNav";
 import { QuickCreateModal } from "./QuickCreateModal";
 import { TaskDetailPanel } from "./TaskDetailPanel";
+import { SessionDetailPanel } from "./SessionDetailPanel";
 import { EntityModal } from "@/components/entities/EntityModal";
 import { EntityView } from "@/components/entities/EntityView";
 import { TodayView } from "./TodayView";
 import { WeekView } from "./WeekView";
 import { MonthView } from "./MonthView";
 import { AllView } from "./AllView";
+import { SessionCreateModal } from "./SessionCreateModal";
+import { SessionView } from "./SessionView";
 import { createClient } from "@/lib/supabase/client";
 import { useUIStore } from "@/stores/ui";
 import { cn } from "@/lib/utils";
@@ -49,7 +53,11 @@ import {
   reorderEntities,
 } from "@/app/actions/entities";
 import { updateItem } from "@/app/actions/items";
-import type { EntityData, ItemData } from "@/lib/types";
+import { updateSession, getSessionItems, createSessionLightTask } from "@/app/actions/sessions";
+import type { EntityData, ItemData, SessionData } from "@/lib/types";
+
+// Module-level cache for session items (stale-while-revalidate)
+const sessionItemsCache = new Map<string, ItemData[]>();
 
 const TIME_VIEW_META: Record<
   TimeView,
@@ -84,11 +92,19 @@ export function TasksModule() {
   const [items, setItems] = useState<ItemData[]>([]);
   const [showEntityModal, setShowEntityModal] = useState(false);
   const [showQuickCreate, setShowQuickCreate] = useState(false);
+  const [showSessionCreate, setShowSessionCreate] = useState(false);
+  const [activeSession, setActiveSession] = useState<SessionData | null>(null);
+  const [sessionItems, setSessionItems] = useState<ItemData[]>([]);
+  const [sessionViewMode, setSessionViewMode] = useState<"list" | "kanban">("list");
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [panelInitialItem, setPanelInitialItem] = useState<ItemData | undefined>(undefined);
+  const [selectedSession, setSelectedSession] = useState<SessionData | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<EntityData | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [lastCreatedItem, setLastCreatedItem] = useState<ItemData | undefined>(undefined);
+  const [showLightTaskCreate, setShowLightTaskCreate] = useState(false);
+  const [lightTaskTitle, setLightTaskTitle] = useState("");
+  const [lightTaskSaving, setLightTaskSaving] = useState(false);
   const [viewDate, setViewDate] = useState(() => new Date());
 
   const activeWorkspaceId = useUIStore((s) => s.activeWorkspaceId);
@@ -105,6 +121,33 @@ export function TasksModule() {
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, []);
+
+  // Fetch session items when a session becomes active
+  useEffect(() => {
+    if (!activeSession) {
+      setSessionItems([]);
+      setSessionViewMode("list");
+      return;
+    }
+    // Show cached data immediately
+    const cached = sessionItemsCache.get(activeSession.id);
+    if (cached) setSessionItems(cached);
+
+    getSessionItems(activeSession.id).then((result) => {
+      if ("items" in result) {
+        sessionItemsCache.set(activeSession.id, result.items);
+        setSessionItems(result.items);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSession?.id]); // intentionally omit activeSession — only re-run on id change
+
+  // Keep session items cache in sync so re-opening shows fresh data
+  useEffect(() => {
+    if (activeSession?.id && sessionItems.length > 0) {
+      sessionItemsCache.set(activeSession.id, sessionItems);
+    }
+  }, [sessionItems, activeSession?.id]);
 
   // Reset entity selection when scope changes
   useEffect(() => {
@@ -255,8 +298,14 @@ export function TasksModule() {
   }
 
   function handleSelectItem(id: string) {
-    setPanelInitialItem(undefined); // fetch fresh data when clicking from list
+    setPanelInitialItem(undefined);
+    setSelectedSession(null);
     setSelectedItemId(id);
+  }
+
+  function handleSelectSession(session: SessionData) {
+    setSelectedItemId(null);
+    setSelectedSession((prev) => (prev?.id === session.id ? null : session));
   }
 
   function handleToggleDone(id: string) {
@@ -282,16 +331,24 @@ export function TasksModule() {
       <div className="flex h-full flex-col">
         <TasksTopNav
           activeTimeView={activeTimeView}
-          onTimeViewChange={setActiveTimeView}
+          onTimeViewChange={(v) => {
+            setActiveSession(null);
+            setActiveTimeView(v);
+          }}
           entities={entities}
           activeEntityId={activeEntityId}
-          onEntityChange={setActiveEntityId}
+          onEntityChange={(id) => {
+            setActiveSession(null);
+            setActiveEntityId(id);
+          }}
           onAddEntity={() => setShowEntityModal(true)}
           onRename={handleRename}
           onRecolor={handleRecolor}
           onArchive={handleArchive}
           onDeleteRequest={setDeleteTarget}
           onReorder={handleReorder}
+          activeSession={activeSession}
+          onSessionExit={() => setActiveSession(null)}
         />
 
         {/* Action bar */}
@@ -333,52 +390,139 @@ export function TasksModule() {
           ) : (
             <div className="flex-1" />
           )}
-          <button
-            onClick={() => setShowQuickCreate(true)}
-            className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-brand-600"
-          >
-            <Plus size={12} />
-            New task
-          </button>
+          <div className="flex items-center gap-2">
+            {activeSession && (
+              <div className="flex items-center rounded-lg border border-border p-0.5">
+                <button
+                  onClick={() => setSessionViewMode("list")}
+                  className={cn(
+                    "rounded px-2.5 py-1 text-xs font-medium transition-colors",
+                    sessionViewMode === "list"
+                      ? "bg-muted text-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  List
+                </button>
+                <button
+                  onClick={() => setSessionViewMode("kanban")}
+                  className={cn(
+                    "rounded px-2.5 py-1 text-xs font-medium transition-colors",
+                    sessionViewMode === "kanban"
+                      ? "bg-muted text-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  Kanban
+                </button>
+              </div>
+            )}
+            {!activeSession && (
+              <button
+                onClick={() => setShowSessionCreate(true)}
+                className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-muted"
+              >
+                <Layers size={12} />
+                New session
+              </button>
+            )}
+            <button
+              onClick={() => setShowQuickCreate(true)}
+              className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-brand-600"
+            >
+              <Plus size={12} />
+              New task
+            </button>
+          </div>
         </div>
 
-        {/* TodayView stays mounted always so its fetch runs in the background */}
-        {activeWorkspaceId && (
-          <div className={cn("h-full", activeTimeView !== "today" && "hidden")}>
-            <TodayView
+        {/* Session kanban — only shown in kanban mode */}
+        {activeSession && sessionViewMode === "kanban" && activeWorkspaceId && (
+          <div className="h-full">
+            <SessionView
+              session={activeSession}
               workspaceId={activeWorkspaceId}
-              entityId={activeEntityId}
               entities={entities}
               onSelectItem={handleSelectItem}
               selectedItemId={selectedItemId}
-              onNewTask={() => setShowQuickCreate(true)}
-              pendingItem={lastCreatedItem}
-              viewDate={viewDate}
+              onSessionUpdated={(s) => {
+                setActiveSession(s);
+                // Refresh items after session update
+                getSessionItems(s.id).then((r) => {
+                  if ("items" in r) {
+                    sessionItemsCache.set(s.id, r.items);
+                    setSessionItems(r.items);
+                  }
+                });
+              }}
             />
           </div>
         )}
 
-        {activeTimeView === "week" && activeWorkspaceId && (
+        {/* TodayView — regular mode OR session list mode */}
+        {activeWorkspaceId && (
+          <div
+            className={cn(
+              "h-full",
+              // hide when: wrong time view (no session), or session is in kanban mode
+              activeSession
+                ? sessionViewMode !== "list" && "hidden"
+                : activeTimeView !== "today" && "hidden"
+            )}
+          >
+            <TodayView
+              workspaceId={activeWorkspaceId}
+              entityId={activeSession ? null : activeEntityId}
+              entities={entities}
+              onSelectItem={handleSelectItem}
+              selectedItemId={selectedItemId}
+              onNewTask={
+                activeSession ? () => setShowLightTaskCreate(true) : () => setShowQuickCreate(true)
+              }
+              onOpenSession={(s) => {
+                setSelectedSession(null);
+                void updateSession(s.id, { status: "active" });
+                setActiveSession({ ...s, status: "active" });
+              }}
+              onSelectSession={handleSelectSession}
+              pendingItem={activeSession ? undefined : lastCreatedItem}
+              viewDate={viewDate}
+              overrideItems={activeSession ? sessionItems : undefined}
+              sessionMode={!!activeSession}
+              sessionColumns={activeSession?.columns}
+              activeSessionId={activeSession?.id}
+              onSessionColumnsChange={(cols) => {
+                setActiveSession((prev) => (prev ? { ...prev, columns: cols } : prev));
+              }}
+            />
+          </div>
+        )}
+
+        {!activeSession && activeTimeView === "week" && activeWorkspaceId && (
           <WeekView
             workspaceId={activeWorkspaceId}
             entityId={activeEntityId}
             entities={entities}
             onSelectItem={handleSelectItem}
             selectedItemId={selectedItemId}
+            onSelectSession={handleSelectSession}
+            selectedSessionId={selectedSession?.id ?? null}
           />
         )}
 
-        {activeTimeView === "month" && activeWorkspaceId && (
+        {!activeSession && activeTimeView === "month" && activeWorkspaceId && (
           <MonthView
             workspaceId={activeWorkspaceId}
             entityId={activeEntityId}
             entities={entities}
             onSelectItem={handleSelectItem}
             selectedItemId={selectedItemId}
+            onSelectSession={handleSelectSession}
+            selectedSessionId={selectedSession?.id ?? null}
           />
         )}
 
-        {activeTimeView === "all" && activeWorkspaceId && (
+        {!activeSession && activeTimeView === "all" && activeWorkspaceId && (
           <AllView
             workspaceId={activeWorkspaceId}
             entityId={activeEntityId}
@@ -388,7 +532,8 @@ export function TasksModule() {
           />
         )}
 
-        {activeTimeView !== "today" &&
+        {!activeSession &&
+          activeTimeView !== "today" &&
           activeTimeView !== "week" &&
           activeTimeView !== "month" &&
           activeTimeView !== "all" &&
@@ -443,11 +588,104 @@ export function TasksModule() {
         />
       )}
 
+      {showLightTaskCreate && activeSession && activeWorkspaceId && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center">
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            onClick={() => {
+              setShowLightTaskCreate(false);
+              setLightTaskTitle("");
+            }}
+          />
+          <div className="relative w-full max-w-sm rounded-2xl border border-border bg-background p-5 shadow-2xl">
+            <p className="mb-3 text-sm font-semibold text-foreground">New task</p>
+            <input
+              autoFocus
+              value={lightTaskTitle}
+              onChange={(e) => setLightTaskTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  if (!lightTaskTitle.trim() || lightTaskSaving) return;
+                  setLightTaskSaving(true);
+                  createSessionLightTask({
+                    workspaceId: activeWorkspaceId,
+                    sessionId: activeSession.id,
+                    title: lightTaskTitle.trim(),
+                    position: sessionItems.length,
+                  }).then((result) => {
+                    if ("item" in result) setSessionItems((prev) => [...prev, result.item]);
+                    setLightTaskTitle("");
+                    setLightTaskSaving(false);
+                    setShowLightTaskCreate(false);
+                  });
+                }
+                if (e.key === "Escape") {
+                  setShowLightTaskCreate(false);
+                  setLightTaskTitle("");
+                }
+              }}
+              placeholder="Task title…"
+              className="w-full rounded-xl border border-border bg-muted/30 px-3 py-2.5 text-sm text-foreground outline-none placeholder:text-muted-foreground/40 focus:ring-1 focus:ring-brand-500"
+            />
+            <div className="mt-3 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setShowLightTaskCreate(false);
+                  setLightTaskTitle("");
+                }}
+                className="rounded-lg px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={!lightTaskTitle.trim() || lightTaskSaving}
+                onClick={() => {
+                  if (!lightTaskTitle.trim() || lightTaskSaving) return;
+                  setLightTaskSaving(true);
+                  createSessionLightTask({
+                    workspaceId: activeWorkspaceId,
+                    sessionId: activeSession.id,
+                    title: lightTaskTitle.trim(),
+                    position: sessionItems.length,
+                  }).then((result) => {
+                    if ("item" in result) setSessionItems((prev) => [...prev, result.item]);
+                    setLightTaskTitle("");
+                    setLightTaskSaving(false);
+                    setShowLightTaskCreate(false);
+                  });
+                }}
+                className="rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-brand-600 disabled:opacity-50"
+              >
+                {lightTaskSaving ? "Adding…" : "Add task"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showSessionCreate && activeWorkspaceId && (
+        <SessionCreateModal
+          workspaceId={activeWorkspaceId}
+          defaultDate={toLocalDateStr(viewDate)}
+          entities={entities}
+          onClose={() => setShowSessionCreate(false)}
+          onCreated={(session) => {
+            setShowSessionCreate(false);
+            setActiveSession({ ...session, status: "active" });
+            void updateSession(session.id, { status: "active" });
+          }}
+        />
+      )}
+
       {/* Overlay — dims content when panel is open */}
-      {selectedItemId && (
+      {(selectedItemId || selectedSession) && (
         <div
           className="fixed inset-0 top-12 z-30 bg-black/20"
-          onClick={() => setSelectedItemId(null)}
+          onClick={() => {
+            setSelectedItemId(null);
+            setSelectedSession(null);
+          }}
         />
       )}
 
@@ -456,7 +694,7 @@ export function TasksModule() {
         className={cn(
           "fixed bottom-0 right-0 top-12 z-40 w-[400px] overflow-y-auto border-l border-border bg-background shadow-2xl",
           "transition-transform duration-300 ease-in-out",
-          selectedItemId ? "translate-x-0" : "translate-x-full"
+          selectedItemId || selectedSession ? "translate-x-0" : "translate-x-full"
         )}
       >
         {selectedItemId && (
@@ -468,6 +706,31 @@ export function TasksModule() {
             onUpdated={(updated) =>
               setItems((prev) => prev.map((it) => (it.id === updated.id ? updated : it)))
             }
+          />
+        )}
+        {selectedSession && (
+          <SessionDetailPanel
+            key={selectedSession.id}
+            session={selectedSession}
+            cachedItems={sessionItemsCache.get(selectedSession.id)}
+            onClose={() => setSelectedSession(null)}
+            onStart={() => {
+              const s = selectedSession;
+              setSelectedSession(null);
+              void updateSession(s.id, { status: "active" });
+              setActiveSession({ ...s, status: "active" });
+            }}
+            onUpdated={(updated) => setSelectedSession(updated)}
+            onTaskAdded={(item) => {
+              const id = selectedSession.id;
+              const cached = sessionItemsCache.get(id) ?? [];
+              sessionItemsCache.set(id, [...cached, item]);
+              if (activeSession?.id === id) setSessionItems((prev) => [...prev, item]);
+            }}
+            onItemsFetched={(items) => {
+              sessionItemsCache.set(selectedSession.id, items);
+              if (activeSession?.id === selectedSession.id) setSessionItems(items);
+            }}
           />
         )}
       </div>

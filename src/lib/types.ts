@@ -24,6 +24,8 @@ export interface ItemData {
   id: string;
   workspace_id: string;
   entity_id: string | null;
+  session_id: string | null;
+  session_origin: "light" | null;
   title: string;
   description: string | null;
   state: string;
@@ -44,4 +46,30 @@ export interface ItemData {
   created_at: string;
   time_spent_ms: number;
   position: number;
+}
+
+export interface SessionColumn {
+  id: string;
+  label: string;
+  is_catchall?: boolean;
+}
+
+export interface SessionData {
+  id: string;
+  workspace_id: string;
+  entity_id: string | null;
+  title: string;
+  type: "batch" | "worksheet" | "focus_session";
+  scheduled_date: string;
+  scheduled_time: string | null;
+  duration_estimate: number | null;
+  duration_actual: number | null;
+  status: "pending" | "active" | "completed" | "partial";
+  completed_units: number;
+  total_units: number | null;
+  columns: SessionColumn[];
+  metadata: Record<string, unknown> | null;
+  ai_summary: string | null;
+  created_at: string;
+  deleted_at: string | null;
 }

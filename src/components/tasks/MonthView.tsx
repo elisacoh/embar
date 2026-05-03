@@ -3,10 +3,10 @@
 import { useState, useEffect, useRef } from "react";
 import { ChevronLeft, ChevronRight, ArrowRight, CalendarDays } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { normalizeItem } from "@/lib/normalize";
+import { normalizeItem, normalizeSession } from "@/lib/normalize";
 import { updateItem } from "@/app/actions/items";
 import { cn } from "@/lib/utils";
-import type { EntityData, ItemData } from "@/lib/types";
+import type { EntityData, ItemData, SessionData } from "@/lib/types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -112,6 +112,42 @@ function MonthChip({
       >
         <ArrowRight size={9} />
       </button>
+    </div>
+  );
+}
+
+// ── Month session chip ────────────────────────────────────────────────────────
+
+interface MonthSessionChipProps {
+  session: SessionData;
+  isSelected: boolean;
+  onSelect: () => void;
+}
+
+function MonthSessionChip({ session, isSelected, onSelect }: MonthSessionChipProps) {
+  return (
+    <div
+      onClick={onSelect}
+      className={cn(
+        "group mb-px flex cursor-pointer select-none items-center gap-1 rounded px-1 py-[2px] text-[10px] transition-all",
+        "bg-brand-500/5 hover:bg-brand-500/10",
+        session.status === "completed" && "opacity-40",
+        isSelected && "ring-1 ring-inset ring-brand-500/60"
+      )}
+    >
+      <span
+        className={cn(
+          "h-1.5 w-1.5 flex-none rounded-full",
+          session.status === "active"
+            ? "bg-green-500"
+            : session.status === "completed"
+              ? "bg-muted-foreground/30"
+              : "bg-brand-500"
+        )}
+      />
+      <span className="min-w-0 flex-1 truncate font-medium leading-tight text-brand-700 dark:text-brand-300">
+        {session.title}
+      </span>
     </div>
   );
 }
@@ -256,6 +292,8 @@ interface MonthViewProps {
   entities: EntityData[];
   onSelectItem: (id: string) => void;
   selectedItemId: string | null;
+  onSelectSession?: (session: SessionData) => void;
+  selectedSessionId?: string | null;
 }
 
 export function MonthView({
@@ -264,9 +302,12 @@ export function MonthView({
   entities,
   onSelectItem,
   selectedItemId,
+  onSelectSession,
+  selectedSessionId,
 }: MonthViewProps) {
   const [anchor, setAnchor] = useState(() => new Date());
   const [items, setItems] = useState<ItemData[]>([]);
+  const [sessions, setSessions] = useState<SessionData[]>([]);
   const [unplannedItems, setUnplannedItems] = useState<ItemData[]>([]);
   const [unplannedOpen, setUnplannedOpen] = useState(false);
   const [dragItemId, setDragItemId] = useState<string | null>(null);
@@ -298,7 +339,8 @@ export function MonthView({
       .eq("workspace_id", workspaceId)
       .gte("scheduled_date", gridStart)
       .lte("scheduled_date", gridEnd)
-      .is("deleted_at", null);
+      .is("deleted_at", null)
+      .is("session_origin", null);
 
     if (entityId) q = q.eq("entity_id", entityId);
 
@@ -318,6 +360,7 @@ export function MonthView({
         },
         (payload) => {
           const updated = normalizeItem(payload.new as Record<string, unknown>);
+          if (updated.session_origin) return;
           setItems((prev) => {
             const inRange =
               !!updated.scheduled_date &&
@@ -348,6 +391,30 @@ export function MonthView({
     };
   }, [workspaceId, entityId, gridStart, gridEnd]);
 
+  // ── Data: sessions ─────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!workspaceId) return;
+    const supabase = createClient();
+
+    let q = supabase
+      .from("sessions")
+      .select(
+        "id, workspace_id, entity_id, title, type, scheduled_date, scheduled_time, duration_estimate, duration_actual, status, completed_units, total_units, metadata, ai_summary, created_at, deleted_at"
+      )
+      .eq("workspace_id", workspaceId)
+      .is("deleted_at", null)
+      .gte("scheduled_date", gridStart)
+      .lte("scheduled_date", gridEnd)
+      .order("scheduled_date", { ascending: true });
+
+    if (entityId) q = q.eq("entity_id", entityId);
+
+    q.then(({ data }) =>
+      setSessions((data ?? []).map((r) => normalizeSession(r as Record<string, unknown>)))
+    );
+  }, [workspaceId, entityId, gridStart, gridEnd]);
+
   // ── Data: unplanned items ──────────────────────────────────────────────────
 
   useEffect(() => {
@@ -359,7 +426,8 @@ export function MonthView({
       .select("*")
       .eq("workspace_id", workspaceId)
       .eq("state", "unplanned")
-      .is("deleted_at", null);
+      .is("deleted_at", null)
+      .is("session_origin", null);
 
     if (entityId) q = q.eq("entity_id", entityId);
 
@@ -564,6 +632,9 @@ export function MonthView({
               const dayItems = items
                 .filter((i) => i.scheduled_date === dateStr)
                 .sort((a, b) => (a.scheduled_time ?? "").localeCompare(b.scheduled_time ?? ""));
+              const daySessions = sessions
+                .filter((s) => s.scheduled_date === dateStr)
+                .sort((a, b) => (a.scheduled_time ?? "").localeCompare(b.scheduled_time ?? ""));
               const isOver = dragOverDate === dateStr && !!dragItemId;
 
               return (
@@ -594,6 +665,16 @@ export function MonthView({
                       {date.getDate()}
                     </span>
                   </div>
+
+                  {/* Session chips */}
+                  {daySessions.map((session) => (
+                    <MonthSessionChip
+                      key={session.id}
+                      session={session}
+                      isSelected={selectedSessionId === session.id}
+                      onSelect={() => onSelectSession?.(session)}
+                    />
+                  ))}
 
                   {/* Task chips */}
                   {dayItems.map((item) => {
