@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { LayoutDashboard, Mail, FileText, Bot } from "lucide-react";
+import { LayoutDashboard, Mail, Bot } from "lucide-react";
 import { Topbar } from "./Topbar";
 import { Sidebar } from "./Sidebar";
 import { AIBar } from "./AIBar";
 import { TasksModule } from "@/components/tasks/TasksModule";
+import { DocumentsModule } from "@/components/documents/DocumentsModule";
 import { useUIStore, type Module } from "@/stores/ui";
 import type { WorkspaceData } from "@/lib/types";
 
@@ -30,12 +31,6 @@ const PLACEHOLDER_META: Partial<
     label: "Email",
     description: "Unified email with AI-powered context.",
     status: "Sprint 2",
-  },
-  documents: {
-    icon: FileText,
-    label: "Documents",
-    description: "Documents and notes linked to your work.",
-    status: "Sprint 3",
   },
   agents: {
     icon: Bot,
@@ -76,6 +71,7 @@ function PlaceholderModule({ module }: { module: Module }) {
 
 function ModuleRouter({ module }: { module: Module }) {
   if (module === "tasks") return <TasksModule />;
+  if (module === "documents") return <DocumentsModule />;
   return <PlaceholderModule module={module} />;
 }
 
